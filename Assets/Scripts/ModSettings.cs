@@ -1,10 +1,5 @@
 namespace Assets.Scripts
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Text;
-    using ModApi.Common;
     using ModApi.Settings.Core;
 
     /// <summary>
@@ -31,25 +26,27 @@ namespace Assets.Scripts
         /// <value>
         /// The mod settings instance.
         /// </value>
-        public static ModSettings Instance => _instance ?? (_instance = Game.Instance.Settings.ModSettings.GetCategory<ModSettings>());
+        public static ModSettings Instance =>
+            _instance ?? (_instance = Game.Instance.Settings.ModSettings.GetCategory<ModSettings>());
 
-        ///// <summary>
-        ///// Gets the TestSetting1 value
-        ///// </summary>
-        ///// <value>
-        ///// The TestSetting1 value.
-        ///// </value>
-        //public NumericSetting<float> TestSetting1 { get; private set; }
+        /// <summary>
+        /// The maximum distance (meters) the craft can drift from the floating origin
+        /// before a reference-frame recenter is forced. The stock game uses ~5000 m,
+        /// which is loose enough that 32-bit float precision loss causes visible part
+        /// jitter well before recentering happens.
+        /// </summary>
+        public NumericSetting<float> RecenterDistance { get; private set; }
 
         /// <summary>
         /// Initializes the settings in the category.
         /// </summary>
         protected override void InitializeSettings()
         {
-            //this.TestSetting1 = this.CreateNumeric<float>("Test Setting 1", 1f, 10f, 1f)
-            //    .SetDescription("A test setting that does nothing.")
-            //    .SetDisplayFormatter(x => x.ToString("F1"))
-            //    .SetDefault(2f);
+            this.RecenterDistance = this.CreateNumeric("Recenter Distance", 100f, 5000f, 100f)
+                .SetDescription(
+                    "Distance (m) from the floating origin at which the flight scene forces a reference-frame recenter. Lower values reduce part jitter caused by 32-bit float precision loss. Stock game default is ~5000 m.")
+                .SetDisplayFormatter(x => x.ToString("F0") + " m")
+                .SetDefault(100f);
         }
     }
 }

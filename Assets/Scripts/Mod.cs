@@ -4,6 +4,7 @@ namespace Assets.Scripts
     using System.Collections.Generic;
     using System.Linq;
     using System.Text;
+    using HarmonyLib;
     using ModApi;
     using ModApi.Common;
     using ModApi.Mods;
@@ -26,5 +27,20 @@ namespace Assets.Scripts
         /// </summary>
         /// <value>The singleton instance of the mod object.</value>
         public static Mod Instance { get; } = GetModInstance<Mod>();
+
+        protected override void OnModInitialized()
+        {
+            base.OnModInitialized();
+
+            try
+            {
+                var harmony = new Harmony("kelly.utils");
+                harmony.PatchAll(typeof(Mod).Assembly);
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogError("[KellyUtils] Failed to apply Harmony patches: " + ex);
+            }
+        }
     }
 }
