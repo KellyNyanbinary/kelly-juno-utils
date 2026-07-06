@@ -12,15 +12,14 @@ namespace Patches
     ///     Harmony postfix patch for <see cref="GameViewScript.IsRecenterRequired" />.
     ///     The stock method forces a floating-origin recenter only once the craft's
     ///     <c>FramePosition.sqrMagnitude</c> exceeds <c>2.5e7</c> (~5000 m from origin).
-    ///     At that distance 32-bit float precision loss is already large enough to cause
-    ///     visible subpixel jitter on craft parts, particles, and smoke trails.
-    ///     This postfix promotes the result to <c>true</c> whenever the craft drifts past
-    ///     a much tighter, user-configurable distance (default 1000 m). It never suppresses
-    ///     an existing <c>true</c>, so all stock triggers (warp, surface-lock transitions,
-    ///     velocity threshold, and the stock 5000 m fallback) remain intact. Recentering is
-    ///     cheap and every downstream consumer of <c>IGameViewObject.OnReferenceFrameRecentered</c>
-    ///     already handles arbitrary position/velocity deltas, so raising the recenter
-    ///     frequency is safe.
+    ///     At that distance, 32-bit float precision loss is already large enough to cause
+    ///     visible subpixel jitter on craft parts and MFDs. This postfix promotes the result
+    ///     to <c>true</c> whenever the craft drifts past a much tighter, user-configurable
+    ///     distance (default 100 m). It never suppresses an existing <c>true</c>, so all stock
+    ///     triggers (warp, surface-lock transitions, velocity threshold, and the stock 5000 m
+    ///     fallback) remain intact. Recentering is cheap and every downstream consumer of
+    ///     <c>IGameViewObject.OnReferenceFrameRecentered</c> already handles arbitrary
+    ///     position/velocity deltas, so raising the recenter frequency is safe.
     /// </summary>
     [HarmonyPatch(typeof(GameViewScript), "IsRecenterRequired")] // private, so nameof won't work
     internal static class GameViewScriptRecenterPatch
@@ -37,7 +36,7 @@ namespace Patches
         // than silently no-op'ing on every frame.
         private static readonly AccessTools.FieldRef<GameViewScript, CraftNode> CraftNodeRef =
             AccessTools.FieldRefAccess<GameViewScript, CraftNode>("_craftNode");
-        
+
         // ReSharper disable once UnusedMember.Local
         [SuppressMessage("ReSharper", "InconsistentNaming")]
         [HarmonyPostfix]
@@ -58,7 +57,7 @@ namespace Patches
                 ModSettings.Instance.RecenterDistance.Value,
                 MinDistanceMeters,
                 MaxDistanceMeters);
-            
+
             var distanceSqr = distance * distance;
 
             if (craftNode.FramePosition.sqrMagnitude > distanceSqr)
