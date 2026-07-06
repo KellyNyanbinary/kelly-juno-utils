@@ -1,0 +1,8 @@
+{
+	"name": "Kelly Utils",
+	"references": [
+		"UnityEngine.UI",
+		"Unity.TextMeshPro",
+		"Unity.Mathematics"
+	]
+}
