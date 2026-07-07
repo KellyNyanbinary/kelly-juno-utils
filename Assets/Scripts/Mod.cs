@@ -36,11 +36,18 @@ namespace Assets.Scripts
             {
                 var harmony = new Harmony("kelly.utils");
                 harmony.PatchAll(typeof(Mod).Assembly);
+                AllocationAttribution.Install(harmony);
             }
             catch (System.Exception ex)
             {
                 Debug.LogError("[KellyUtils] Failed to apply Harmony patches: " + ex);
             }
+
+            GCDiagnostics.LogCapabilities();
+            GCScheduler.EnsureCreated();
+            StutterWatchdog.EnsureCreated();
+            AllocationWatchdog.EnsureCreated();
+            AllocationAttributionReporter.EnsureCreated();
         }
     }
 }
