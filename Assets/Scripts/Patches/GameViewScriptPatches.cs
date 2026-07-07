@@ -46,7 +46,7 @@ namespace Patches
                 return;
 
             var referenceFrame = __instance.ReferenceFrame;
-            if (referenceFrame == null || !referenceFrame.RecenterEnabled)
+            if (referenceFrame is not { RecenterEnabled: true })
                 return;
 
             var craftNode = CraftNodeRef(__instance);
