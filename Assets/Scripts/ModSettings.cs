@@ -38,15 +38,28 @@ namespace Assets.Scripts
         public NumericSetting<float> RecenterDistance { get; private set; }
 
         /// <summary>
+        /// If enabled, prevents the first-person camera's far clip plane from collapsing
+        /// to a very short distance whenever the astronaut or a physical Camera part is
+        /// used in first-person view. Fixes reduced terrain scatter (Juno Parallax) and
+        /// shadow draw distance in FPV.
+        /// </summary>
+        public BoolSetting FixFirstPersonDrawDistance { get; private set; }
+
+        /// <summary>
         /// Initializes the settings in the category.
         /// </summary>
         protected override void InitializeSettings()
         {
-            this.RecenterDistance = this.CreateNumeric("Recenter Distance", 100f, 5000f, 100f)
+            RecenterDistance = CreateNumeric("Recenter Distance", 100f, 5000f, 100f)
                 .SetDescription(
                     "Distance (m) from the floating origin at which the flight scene forces a reference-frame recenter. Lower values reduce part jitter caused by 32-bit float precision loss. Stock game default is ~5000 m.")
                 .SetDisplayFormatter(x => x.ToString("F0") + " m")
                 .SetDefault(100f);
+
+            FixFirstPersonDrawDistance = CreateBool("Fix First-Person Draw Distance")
+                .SetDescription(
+                    "If enabled, forces the first-person camera's near/far clip plane to start at their normal full-range values instead of collapsing toward a very short far clip whenever the astronaut or a physical Camera part is used in first-person view. Fixes reduced terrain scatter (for Juno Parallax) and shadow draw distance in FPV.")
+                .SetDefault(true);
         }
     }
 }
