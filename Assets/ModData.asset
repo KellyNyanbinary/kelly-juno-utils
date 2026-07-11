@@ -14,8 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _assemblies:
   - 0Harmony.dll
-  - Jundroo.ModTools.dll
-  - Jundroo.ModTools.Core.dll
   - Kelly Utils.dll
   _author: KellyNyanbinary
   _description: 
