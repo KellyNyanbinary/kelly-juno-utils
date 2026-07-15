@@ -1,13 +1,6 @@
 namespace Assets.Scripts
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Text;
     using HarmonyLib;
-    using ModApi;
-    using ModApi.Common;
-    using ModApi.Mods;
     using UnityEngine;
 
     /// <summary>

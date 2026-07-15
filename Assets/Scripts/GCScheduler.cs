@@ -1,25 +1,23 @@
 namespace Assets.Scripts
 {
     using System;
-    using ModApi;
     using UnityEngine;
-    using UnityEngine.Scripting;
 
     /// <summary>
-    /// A persistent, scene-independent MonoBehaviour that takes manual control of the garbage
-    /// collector (via <see cref="GarbageCollector.GCMode"/>) when
+    /// A persistent, scene-independent MonoBehaviour that reduces GC-related stutter during
+    /// flight by opportunistically forcing garbage collections at safe moments, when
     /// <see cref="ModSettings.EnableManualGCScheduling"/> is enabled.
     /// </summary>
     /// <remarks>
     /// This player build does not have Unity's incremental GC compiled in
-    /// (<c>GarbageCollector.isIncremental</c> is false), so every collection is a full,
-    /// blocking, stop-the-world pause — there is no way for a mod to make individual
-    /// collections shorter. What a mod *can* do is control *when* they happen: instead of
-    /// letting the runtime trigger a collection at an arbitrary moment (e.g. mid-throttle,
-    /// mid-maneuver), this scheduler only forces collections while the game is paused or the
-    /// flight scene isn't active (menus, designer, tech tree, planet studio). A heap-size
-    /// safety valve still forces a collection even during active flight if memory grows too
-    /// large, to avoid unbounded growth while waiting for a safe moment.
+    /// (<c>GarbageCollector.isIncremental</c> is false) :(, so every collection is a full,
+    /// blocking, stop-the-world pause, and <c>GarbageCollector.GCMode</c> has no effect on the
+    /// automatic collector (verified empirically: collections still occurred with GCMode set to
+    /// Manual). A mod, therefore, cannot shorten collections or suppress them, but it can
+    /// reduce how often they land mid-flight by collecting whenever the game is paused or the
+    /// flight scene isn't active (menus, designer, etc.), keeping the heap small so the
+    /// runtime's own collections trigger less frequently during active flight. A heap-size
+    /// safety valve also forces a collection mid-flight if memory grows past a configured cap.
     /// </remarks>
     public sealed class GCScheduler : MonoBehaviour
     {
@@ -30,12 +28,11 @@ namespace Assets.Scripts
         /// </summary>
         private const long OpportunisticAllocationThresholdBytes = 16L * 1024 * 1024;
 
-        private bool _managingGCMode;
-        private float _lastCollectRealtime;
+        private double _lastCollectRealtime;
         private long _memoryAtLastCollect;
 
         /// <summary>
-        /// Creates the persistent GameObject hosting this scheduler, if it doesn't already exist.
+        /// Creates the persistent GameObject hosting this scheduler if it doesn't already exist.
         /// Safe to call multiple times.
         /// </summary>
         public static void EnsureCreated()
@@ -44,22 +41,22 @@ namespace Assets.Scripts
                 return;
 
             var go = new GameObject("KellyUtils.GCScheduler");
-            UnityEngine.Object.DontDestroyOnLoad(go);
+            DontDestroyOnLoad(go);
             go.AddComponent<GCScheduler>();
         }
 
         private void Update()
         {
-            bool enabled;
+            bool isEnabled;
             float minInterval;
             long heapSafetyCapBytes;
 
             try
             {
                 var settings = ModSettings.Instance;
-                enabled = settings.EnableManualGCScheduling.Value;
+                isEnabled = settings.EnableManualGCScheduling.Value;
                 minInterval = settings.GCMinIntervalSeconds.Value;
-                heapSafetyCapBytes = (long)(settings.GCHeapSafetyCapMB.Value * 1024f * 1024f);
+                heapSafetyCapBytes = (long)(settings.GCHeapSafetyCapMiB.Value * 1024f * 1024f);
             }
             catch (Exception)
             {
@@ -67,29 +64,19 @@ namespace Assets.Scripts
                 return;
             }
 
-            if (!enabled)
-            {
-                RelinquishGCControl();
+            if (!isEnabled)
                 return;
-            }
-
-            TakeGCControl();
-
-            if (_managingGCMode && GarbageCollector.GCMode != GarbageCollector.Mode.Manual)
-            {
-                Debug.LogWarning(
-                    $"[KellyUtils] GCMode was reset to {GarbageCollector.GCMode} by something other than "
-                    + "GCScheduler — re-asserting Manual. A collection may have just occurred outside our control.");
-                GarbageCollector.GCMode = GarbageCollector.Mode.Manual;
-            }
+            
+            if (heapSafetyCapBytes <= 0)
+                return;
 
             var currentMemory = GC.GetTotalMemory(false);
 
             if (currentMemory >= heapSafetyCapBytes)
             {
                 Debug.LogWarning(
-                    $"[KellyUtils] GC heap safety cap reached ({currentMemory / (1024 * 1024)} MB >= "
-                    + $"{heapSafetyCapBytes / (1024 * 1024)} MB) — forcing a collection mid-flight.");
+                    $"[KellyUtils] GC heap safety cap reached ({currentMemory / (1024 * 1024)} MiB >= "
+                    + $"{heapSafetyCapBytes / (1024 * 1024)} MiB), forcing a collection mid-flight.");
                 Collect();
                 return;
             }
@@ -97,23 +84,13 @@ namespace Assets.Scripts
             if (!IsSafeWindow())
                 return;
 
-            if (Time.realtimeSinceStartup - _lastCollectRealtime < minInterval)
+            if (Time.realtimeSinceStartupAsDouble - _lastCollectRealtime < minInterval)
                 return;
 
             if (currentMemory - _memoryAtLastCollect < OpportunisticAllocationThresholdBytes)
                 return;
 
             Collect();
-        }
-
-        private void OnDestroy()
-        {
-            RelinquishGCControl();
-        }
-
-        private void OnApplicationQuit()
-        {
-            RelinquishGCControl();
         }
 
         /// <summary>
@@ -136,28 +113,8 @@ namespace Assets.Scripts
         private void Collect()
         {
             GC.Collect();
-            _lastCollectRealtime = Time.realtimeSinceStartup;
+            _lastCollectRealtime = Time.realtimeSinceStartupAsDouble;
             _memoryAtLastCollect = GC.GetTotalMemory(false);
-        }
-
-        private void TakeGCControl()
-        {
-            if (_managingGCMode)
-                return;
-
-            GarbageCollector.GCMode = GarbageCollector.Mode.Manual;
-            _managingGCMode = true;
-            Debug.Log($"[KellyUtils] GCScheduler took control — GCMode now {GarbageCollector.GCMode}.");
-        }
-
-        private void RelinquishGCControl()
-        {
-            if (!_managingGCMode)
-                return;
-
-            GarbageCollector.GCMode = GarbageCollector.Mode.Enabled;
-            _managingGCMode = false;
-            Debug.Log($"[KellyUtils] GCScheduler relinquished control — GCMode now {GarbageCollector.GCMode}.");
         }
     }
 }
