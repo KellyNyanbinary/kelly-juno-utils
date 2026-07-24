@@ -10,7 +10,7 @@ namespace Assets.Scripts
     /// </summary>
     /// <remarks>
     /// This player build does not have Unity's incremental GC compiled in
-    /// (<c>GarbageCollector.isIncremental</c> is false) :(, so every collection is a full,
+    /// (<c>GarbageCollector.isIncremental</c> is false), so every collection is a full,
     /// blocking, stop-the-world pause, and <c>GarbageCollector.GCMode</c> has no effect on the
     /// automatic collector (verified empirically: collections still occurred with GCMode set to
     /// Manual). A mod, therefore, cannot shorten collections or suppress them, but it can

@@ -4,14 +4,14 @@ namespace Assets.Scripts
     using UnityEngine;
 
     /// <summary>
-    /// A singleton object representing this mod that is instantiated and initialize when the mod is loaded.
+    /// The mod entry point.
     /// </summary>
     public class Mod : ModApi.Mods.GameMod
     {
         /// <summary>
         /// Prevents a default instance of the <see cref="Mod"/> class from being created.
         /// </summary>
-        private Mod() : base()
+        private Mod()
         {
         }
 

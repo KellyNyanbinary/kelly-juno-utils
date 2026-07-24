@@ -61,7 +61,7 @@ namespace Assets.Scripts
         public NumericSetting<float> GCMinIntervalSeconds { get; private set; }
 
         /// <summary>
-        /// Hard managed-heap safety cap (mebibyte). If the heap grows past this size, a
+        /// Hard managed-heap safety cap (MiB). If the heap grows past this size, a
         /// collection is forced immediately regardless of whether it's a safe window, to
         /// avoid unbounded memory growth while the scheduler waits for a safe moment.
         /// </summary>
@@ -76,8 +76,8 @@ namespace Assets.Scripts
         public BoolSetting EnableAllocationWatchdog { get; private set; }
 
         /// <summary>
-        /// When enabled, logs the top allocating per-frame update phases (e.g. IFlightFixedUpdate,
-        /// IFlightUpdate) once per second, measured via Harmony patches on the game's internal
+        /// When enabled, logs the top allocating flight-update classes once per second,
+        /// measured via Harmony patches on the game's internal
         /// update dispatch. See <see cref="AllocationAttribution"/>. Diagnostic only, off by default.
         /// </summary>
         public BoolSetting EnableAllocationAttribution { get; private set; }
@@ -98,31 +98,31 @@ namespace Assets.Scripts
                     "If enabled, forces the first-person camera's near/far clip plane to start at their normal full-range values instead of collapsing toward a very short far clip whenever the astronaut or a physical Camera part is used in first-person view. Fixes reduced terrain scatter (for Juno Parallax) and shadow draw distance in FPV.")
                 .SetDefault(true);
 
-            this.EnableManualGCScheduling = this.CreateBool("GC Scheduling")
+            EnableManualGCScheduling = CreateBool("GC Scheduling")
                 .SetDescription(
                     "Opportunistically forces garbage collections while the game is paused or outside the flight scene, keeping the managed heap small so GC pauses land mid-flight less often. Note: this build lacks incremental GC, so collections during flight cannot be prevented entirely, only made less frequent.")
                 .SetDefault(false);
 
-            this.GCMinIntervalSeconds = this.CreateNumeric("GC Min Interval", 5f, 120f, 5f)
+            GCMinIntervalSeconds = CreateNumeric("GC Min Interval", 5f, 120f, 5f)
                 .SetDescription(
                     "Minimum time (seconds) between opportunistic collections forced during a safe window (paused / non-flight scene).")
                 .SetDisplayFormatter(x => x.ToString("F0") + " s")
                 .SetDefault(15f);
 
-            this.GCHeapSafetyCapMiB = this.CreateNumeric("GC Heap Safety Cap", 256f, 8192f, 256f)
+            GCHeapSafetyCapMiB = CreateNumeric("GC Heap Safety Cap", 256f, 8192f, 256f)
                 .SetDescription(
                     "If the managed heap grows past this size (MiB), a collection is forced immediately even mid-flight, to prevent unbounded memory growth while waiting for a safe (paused) moment.")
-                .SetDisplayFormatter(x => x.ToString("F0") + " MB")
-                .SetDefault(8192);
+                .SetDisplayFormatter(x => x.ToString("F0") + " MiB")
+                .SetDefault(8192f);
 
-            this.EnableAllocationWatchdog = this.CreateBool("Allocation Watchdog Logging")
+            EnableAllocationWatchdog = CreateBool("Allocation Watchdog Logging")
                 .SetDescription(
                     "Logs managed heap allocation rate once per second along with craft state, to help identify what's producing garbage during flight. Diagnostic only, off by default.")
                 .SetDefault(false);
 
-            this.EnableAllocationAttribution = this.CreateBool("Allocation Attribution Logging")
+            EnableAllocationAttribution = CreateBool("Allocation Attribution Logging")
                 .SetDescription(
-                    "Logs the top allocating per-frame update phases (e.g. IFlightFixedUpdate, IFlightUpdate) once per second, via Harmony patches on the game's internal update dispatch. Diagnostic only, off by default.")
+                    "Logs the flight-update classes producing the most managed-heap growth once per second. Diagnostic only, off by default.")
                 .SetDefault(false);
         }
     }

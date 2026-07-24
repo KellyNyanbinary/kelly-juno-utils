@@ -5,16 +5,16 @@ namespace Assets.Scripts
     using UnityEngine;
 
     /// <summary>
-    /// A persistent, scene-independent MonoBehaviour that periodically logs the top allocating
-    /// update phases recorded by <see cref="AllocationAttribution"/>, when
-    /// <see cref="ModSettings.EnableAllocationAttribution"/> is enabled. Diagnostic only.
+    /// Reports the flight-update classes with the most managed-heap growth.
     /// </summary>
     public sealed class AllocationAttributionReporter : MonoBehaviour
     {
         private const float ReportIntervalSeconds = 1f;
         private const int TopN = 6;
+        private const float BytesPerMiB = 1024f * 1024f;
 
         private float _accumulatedTime;
+        private bool _wasEnabled;
 
         /// <summary>
         /// Creates the persistent GameObject hosting this reporter, if it doesn't already exist.
@@ -44,10 +44,25 @@ namespace Assets.Scripts
 
             if (!enabled)
             {
-                // Drain without reporting so a subsequent enable doesn't report a stale, misleading
-                // backlog accumulated while this was off.
-                AllocationAttribution.DrainAndReset();
+                AllocationAttribution.Enabled = false;
+
+                if (_wasEnabled)
+                    AllocationAttribution.TakeSnapshot();
+
+                _wasEnabled = false;
                 _accumulatedTime = 0f;
+                return;
+            }
+
+            if (!_wasEnabled)
+            {
+                AllocationAttribution.TakeSnapshot();
+                AllocationAttribution.Enabled = true;
+                _wasEnabled = true;
+                _accumulatedTime = 0f;
+                Debug.Log(
+                    "[KellyUtils] AllocationAttribution enabled — "
+                    + "measuring per-class managed-heap deltas.");
                 return;
             }
 
@@ -55,7 +70,7 @@ namespace Assets.Scripts
             if (_accumulatedTime < ReportIntervalSeconds)
                 return;
 
-            var snapshot = AllocationAttribution.DrainAndReset();
+            var snapshot = AllocationAttribution.TakeSnapshot();
             var window = _accumulatedTime;
             _accumulatedTime = 0f;
 
@@ -65,7 +80,9 @@ namespace Assets.Scripts
             var top = snapshot
                 .OrderByDescending(kv => kv.Value)
                 .Take(TopN)
-                .Select(kv => $"{kv.Key}={kv.Value / (1024f * 1024f):F2}MB/{(kv.Value / window / (1024f * 1024f)):F2}MB/s");
+                .Select(kv =>
+                    $"{kv.Key}={kv.Value / BytesPerMiB:F2} MiB/"
+                    + $"{kv.Value / window / BytesPerMiB:F2} MiB/s");
 
             Debug.Log($"[KellyUtils] AllocTop (over {window:F1}s): {string.Join(", ", top)}");
         }
