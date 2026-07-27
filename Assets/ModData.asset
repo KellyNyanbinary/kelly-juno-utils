@@ -19,7 +19,10 @@ MonoBehaviour:
   _description: 
   _loadPriority: 1000
   _name: Kelly Utils
-  _otherAssets: []
+  _otherAssets:
+  - {fileID: 4900000, guid: c555b64cedf64db4bcf42bd58da7046e, type: 3}
+  - {fileID: 4800000, guid: a76909f157b04ae1b25ccb4559c95874, type: 3}
+  - {fileID: 4900000, guid: 311f3a5e33084a3aad4c98ddcbd5b660, type: 3}
   _prefabs: []
   _steamDescription: 
   _steamLanguage: English
@@ -28,7 +31,7 @@ MonoBehaviour:
   _steamTitle: 
   _steamVisibility: 0
   _versionMajor: 0
-  _versionMinor: 2
+  _versionMinor: 3
   _partCategories: []
   _parts: []
   _partStyleExtensions: []
