@@ -6,6 +6,7 @@ Kelly Utils is a mod for Jundroo's [Juno: New Origins](https://simplerockets.com
 
 - Fix the floating point precision problem causing Drood FPV and camera PoVs to start shaking over time as they become further from the Unity game scene's origin.
 - Fix first-person camera clip planes so [Parallax](https://www.simplerockets.com/Mods/View/240051/Parallax) terrain scatter appears further.
+- Add optional [SMAA 1x](https://www.iryoku.com/smaa/) anti-aliasing, which preserves texture detail noticeably better than the stock FXAA and DLAA options.
 
 ## License
 
@@ -16,6 +17,8 @@ This project’s source code is licensed under the [MIT License](LICENSE).
 > This software is provided "as is", without warranty of any kind.
 >
 > This license applies only to the original source code written for Kelly Utils. Unity and Juno: New Origins remain proprietary software, and their engine libraries, assemblies, and any automatically generated skeleton code are not covered by this license. Any third-party plugins and libraries included and referenced are distributed under their original licenses, which are provided in their respective source and documentation.
+>
+> This mod bundles the reference [SMAA](https://github.com/iryoku/smaa) implementation by Jorge Jimenez, Jose I. Echevarria, Tiago Sousa and Diego Gutierrez, used under the MIT License. See [`Assets/Shaders/SMAA`](Assets/Shaders/SMAA) for the vendored sources, their license, and provenance notes.
 >
 > To build or use this mod, you must have a licensed copy of Unity, Juno: New Origins, and any applicable plugins.
 

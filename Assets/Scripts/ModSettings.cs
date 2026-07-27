@@ -1,3 +1,5 @@
+using Rendering;
+
 namespace Assets.Scripts
 {
     using ModApi.Settings.Core;
@@ -46,6 +48,20 @@ namespace Assets.Scripts
         public BoolSetting FixFirstPersonDrawDistance { get; private set; }
 
         /// <summary>
+        /// If enabled, applies SMAA 1x to the composited scene image on the master camera,
+        /// replacing the stock FXAA/DLAA post-process antialiasing. SMAA reconstructs edge
+        /// gradients using pattern classification rather than a directional blur, so it preserves
+        /// texture detail noticeably better than FXAA or DLAA.
+        /// </summary>
+        public BoolSetting EnableSmaa { get; private set; }
+
+        /// <summary>
+        /// The SMAA quality preset, controlling the edge-detection threshold, the number of edge
+        /// search steps, and whether diagonal and corner detection run.
+        /// </summary>
+        public EnumSetting<SmaaQualityPreset> SmaaQuality { get; private set; }
+
+        /// <summary>
         /// Initializes the settings in the category.
         /// </summary>
         protected override void InitializeSettings()
@@ -60,6 +76,16 @@ namespace Assets.Scripts
                 .SetDescription(
                     "If enabled, forces the first-person camera's near/far clip plane to start at their normal full-range values instead of collapsing toward a very short far clip whenever the astronaut or a physical Camera part is used in first-person view. Fixes reduced terrain scatter (for Juno Parallax) and shadow draw distance in FPV.")
                 .SetDefault(true);
+
+            EnableSmaa = CreateBool("Enable SMAA")
+                .SetDescription(
+                    "Applies SMAA 1x anti-aliasing to the final scene image, replacing the stock FXAA/DLAA option. Preserves texture detail noticeably better than FXAA or DLAA, at roughly 0.3-0.8 ms per frame at 1080p. Works alongside MSAA if you also have MSAA selected in Display settings.")
+                .SetDefault(false);
+
+            SmaaQuality = CreateEnum<SmaaQualityPreset>("SMAA Quality")
+                .SetDescription(
+                    "The SMAA quality preset. Higher presets trace edges further and enable diagonal and corner detection. Only used when SMAA is enabled.")
+                .SetDefault(SmaaQualityPreset.High);
         }
     }
 }
