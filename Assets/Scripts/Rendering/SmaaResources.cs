@@ -30,7 +30,7 @@ namespace Rendering
 
         public static Texture2D SearchTexture { get; private set; }
 
-        private static bool IsAvailable => Shader != null && AreaTexture != null && SearchTexture != null;
+        private static bool LookupTablesReady => AreaTexture != null && SearchTexture != null;
 
         /// <summary>
         ///     Ensures the shader and lookup tables are loaded. Failures are latched so a missing or
@@ -74,7 +74,7 @@ namespace Rendering
 
         private static bool TryBuildLookupTables()
         {
-            if (_lookupTablesAttempted) return IsAvailable;
+            if (_lookupTablesAttempted) return LookupTablesReady;
             _lookupTablesAttempted = true;
 
             try
@@ -87,7 +87,15 @@ namespace Rendering
                 SearchTexture = CreateLookupTexture(
                     "SearchTex", SearchTexWidth, SearchTexHeight, TextureFormat.R8, FilterMode.Point);
 
-                return IsAvailable;
+                if (LookupTablesReady) return true;
+
+                // CreateLookupTexture reports its own failures and returns null rather than
+                // throwing, so a partial build lands here with one table possibly already created.
+                // These textures are HideAndDontSave, meaning they survive scene loads and nothing
+                // else will ever collect them, so release explicitly. Both tables are attempted
+                // before bailing so that a broken install reports every problem in one run.
+                ReleaseLookupTables();
+                return false;
             }
             catch (Exception ex)
             {
