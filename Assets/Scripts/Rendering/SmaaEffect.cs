@@ -7,16 +7,16 @@ using UnityEngine;
 namespace Rendering
 {
     /// <summary>
-    ///     SMAA 1x, applied to the fully composited scene image on the master camera.
-    ///     <para>
-    ///         This is the same injection point the stock FXAA/DLAA effect uses, and it is the only
-    ///         correct one: the near, far, and scaled-space cameras all render into a single shared
-    ///         render texture which <see cref="SceneMasterCameraScript" /> then blits to the screen.
-    ///         Because that blit ignores its <c>source</c> argument and writes the shared texture
-    ///         directly, this component must run <em>after</em> it in the component order, which
-    ///         <c>AddComponent</c> guarantees by appending.
-    ///     </para>
+    /// SMAA 1x, applied to the fully composited scene image on the master camera.
     /// </summary>
+    /// <remarks>
+    /// This is the same injection point the stock FXAA/DLAA effect uses, and it is the only
+    /// correct one: the near, far, and scaled-space cameras all render into a single shared
+    /// render texture which <see cref="SceneMasterCameraScript" /> then blits to the screen.
+    /// Because that blit ignores its <c>source</c> argument and writes the shared texture
+    /// directly, this component must run <em>after</em> it in the component order, which
+    /// <c>AddComponent</c> guarantees by appending.
+    /// </remarks>
     [DisallowMultipleComponent]
     public class SmaaEffect : MonoBehaviour
     {
@@ -39,21 +39,21 @@ namespace Rendering
         private EventHandler<SettingChangedEventArgs<bool>> _enabledChangedHandler;
 
         /// <summary>
-        ///     Gets this mod's settings, or null if the category is not registered. The game only
-        ///     publishes a category once <c>InitializeSettings</c> has run, so a non-null result is
-        ///     always fully initialized.
+        /// Gets this mod's settings, or null if the category is not registered. The game only
+        /// publishes a category once <c>InitializeSettings</c> has run, so a non-null result is
+        /// always fully initialized.
         /// </summary>
-        private static ModSettings Settings => Game.Instance == null ? null : ModSettings.Instance;
+        private static ModSettings Settings => Game.Instance is null ? null : ModSettings.Instance;
 
         /// <summary>
-        ///     Gets a value indicating whether SMAA should run this frame.
+        /// Gets a value indicating whether SMAA should run this frame.
         /// </summary>
         public static bool IsRequested
         {
             get
             {
                 var settings = Settings;
-                return settings != null && settings.EnableSmaa.Value;
+                return settings is not null && settings.EnableSmaa.Value;
             }
         }
 
@@ -70,7 +70,7 @@ namespace Rendering
             // itself. If the category is somehow still missing, the live toggle would silently stop
             // working, so say so rather than failing quietly.
             var settings = Settings;
-            if (settings == null)
+            if (settings is null)
             {
                 Debug.LogError(
                     "[KellyUtils] Mod settings were unavailable when SMAA was attached; " +
@@ -84,10 +84,10 @@ namespace Rendering
 
         private void OnDisable()
         {
-            if (_enabledChangedHandler == null) return;
+            if (_enabledChangedHandler is null) return;
 
             var settings = Settings;
-            if (settings != null)
+            if (settings is not null)
             {
                 settings.EnableSmaa.Changed -= _enabledChangedHandler;
             }
@@ -97,11 +97,9 @@ namespace Rendering
 
         private void OnDestroy()
         {
-            if (_material != null)
-            {
-                Destroy(_material);
-                _material = null;
-            }
+            if (_material == null) return;
+            Destroy(_material);
+            _material = null;
         }
 
         private void OnEnableSmaaChanged(object sender, SettingChangedEventArgs<bool> e)
@@ -178,7 +176,7 @@ namespace Rendering
         private void ApplyQualityPreset()
         {
             var settings = Settings;
-            if (settings == null) return;
+            if (settings is null) return;
 
             var index = (int)settings.SmaaQuality.Value;
             if (index < 0 || index >= PresetKeywords.Length) index = (int)SmaaQualityPreset.High;

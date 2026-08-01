@@ -7,17 +7,17 @@ using UnityEngine;
 namespace Rendering
 {
     /// <summary>
-    ///     Reflected access to the private members of <see cref="SceneMasterCameraScript" /> that the
-    ///     SMAA integration needs to drive.
-    ///     <para>
-    ///         Two stock behaviors have to be worked around. First, the composited scene render
-    ///         texture (and the master camera itself) is only enabled when the resolution scale is not
-    ///         1, a post-process antialiasing mode is selected, or legacy re-entry is on; otherwise
-    ///         the scene cameras render straight to the back buffer, and no image effect on the master
-    ///         camera ever runs. Second, the stock FXAA/DLAA image effect must be switched off so SMAA
-    ///         does not run on top of an already-filtered image.
-    ///     </para>
+    /// Reflected access to the private members of <see cref="SceneMasterCameraScript" /> that the
+    /// SMAA integration needs to drive.
     /// </summary>
+    /// <remarks>
+    /// Two stock behaviors have to be worked around. First, the composited scene render
+    /// texture (and the master camera itself) is only enabled when the resolution scale is not
+    /// 1, a post-process antialiasing mode is selected, or legacy re-entry is on; otherwise
+    /// the scene cameras render straight to the back buffer, and no image effect on the master
+    /// camera ever runs. Second, the stock FXAA/DLAA image effect must be switched off so SMAA
+    /// does not run on top of an already-filtered image.
+    /// </remarks>
     internal static class SceneMasterCameraAccessor
     {
         private static readonly FieldInfo SceneTextureField =
@@ -33,33 +33,33 @@ namespace Rendering
             AccessTools.Inner(typeof(SceneMasterCameraScript), "RenderTextureData");
 
         private static readonly MethodInfo SetEnabledMethod =
-            RenderTextureDataType == null ? null : AccessTools.Method(RenderTextureDataType, "SetEnabled");
+            RenderTextureDataType is null ? null : AccessTools.Method(RenderTextureDataType, "SetEnabled");
 
         private static readonly MethodInfo GetEnabledMethod =
-            RenderTextureDataType == null ? null : AccessTools.PropertyGetter(RenderTextureDataType, "Enabled");
+            RenderTextureDataType is null ? null : AccessTools.PropertyGetter(RenderTextureDataType, "Enabled");
 
         /// <summary>
-        ///     Gets a value indicating whether every reflected member was resolved. If the game is
-        ///     updated and a member is renamed this turns false, and the SMAA integration disables
-        ///     itself rather than throwing every frame.
+        /// Gets a value indicating whether every reflected member was resolved. If the game is
+        /// updated and a member is renamed this turns false, and the SMAA integration disables
+        /// itself rather than throwing every frame.
         /// </summary>
         public static bool IsAvailable =>
-            SceneTextureField != null &&
-            AntiAliasingEffectField != null &&
-            ApplyAntiAliasingSettingsMethod != null &&
-            SetEnabledMethod != null &&
-            GetEnabledMethod != null;
+            SceneTextureField is not null &&
+            AntiAliasingEffectField is not null &&
+            ApplyAntiAliasingSettingsMethod is not null &&
+            SetEnabledMethod is not null &&
+            GetEnabledMethod is not null;
 
         /// <summary>
-        ///     Forces the composited scene render texture and the master camera on, so that image
-        ///     effects attached to the master camera are actually executed.
+        /// Forces the composited scene render texture and the master camera on, so that image
+        /// effects attached to the master camera are actually executed.
         /// </summary>
         public static void ForceSceneRenderTextureEnabled(SceneMasterCameraScript master)
         {
             if (master == null || !IsAvailable) return;
 
             var sceneTexture = SceneTextureField.GetValue(master);
-            if (sceneTexture == null) return;
+            if (sceneTexture is null) return;
 
             // SetEnabled(true) flags the texture as dirty and forces a reallocation, so only call it
             // when the state actually needs to change.
@@ -83,7 +83,7 @@ namespace Rendering
         }
 
         /// <summary>
-        ///     Enables or disables the stock FXAA/DLAA image effect on the master camera.
+        /// Enables or disables the stock FXAA/DLAA image effect on the master camera.
         /// </summary>
         public static void SetStockPostAntiAliasingEnabled(SceneMasterCameraScript master, bool enabled)
         {
@@ -96,10 +96,10 @@ namespace Rendering
         }
 
         /// <summary>
-        ///     Re-applies the stock antialiasing settings from scratch. This re-evaluates both the
-        ///     stock FXAA/DLAA effect state and the render texture path (the stock method calls
-        ///     <c>UpdateRenderMethod</c> itself), so toggling SMAA off at runtime restores exactly the
-        ///     configuration the player's own antialiasing setting asks for.
+        /// Re-applies the stock antialiasing settings from scratch. This re-evaluates both the
+        /// stock FXAA/DLAA effect state and the render texture path (the stock method calls
+        /// <c>UpdateRenderMethod</c> itself), so toggling SMAA off at runtime restores exactly the
+        /// configuration the player's own antialiasing setting asks for.
         /// </summary>
         public static void RefreshAntiAliasing(SceneMasterCameraScript master)
         {

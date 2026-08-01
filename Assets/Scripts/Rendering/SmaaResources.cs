@@ -5,15 +5,15 @@ using UnityEngine;
 namespace Rendering
 {
     /// <summary>
-    ///     Loads and caches the SMAA shader and its two precomputed lookup tables from the mod's
-    ///     asset bundle. The lookup tables ship as raw <c>.bytes</c> blobs rather than as imported
-    ///     texture assets so that their format, filtering, and color space are set explicitly here
-    ///     instead of depending on Unity import settings, which are easy to get silently wrong.
-    ///     <para>
-    ///         The raw bytes are uploaded in their original row order; this was verified in-game and
-    ///         matches how Unity's own Post Processing Stack ships the same tables.
-    ///     </para>
+    /// Loads and caches the SMAA shader and its two precomputed lookup tables from the mod's
+    /// asset bundle. The lookup tables ship as raw <c>.bytes</c> blobs rather than as imported
+    /// texture assets so that their format, filtering, and color space are set explicitly here
+    /// instead of depending on Unity import settings, which are easy to get silently wrong.
     /// </summary>
+    /// <remarks>
+    /// The raw bytes are uploaded in their original row order; this was verified in-game and
+    /// matches how Unity's own Post Processing Stack ships the same tables.
+    /// </remarks>
     internal static class SmaaResources
     {
         private const int AreaTexWidth = 160;
@@ -33,8 +33,8 @@ namespace Rendering
         private static bool LookupTablesReady => AreaTexture != null && SearchTexture != null;
 
         /// <summary>
-        ///     Ensures the shader and lookup tables are loaded. Failures are latched so a missing or
-        ///     malformed asset logs once rather than once per frame.
+        /// Ensures the shader and lookup tables are loaded. Failures are latched so a missing or
+        /// malformed asset logs once rather than once per frame.
         /// </summary>
         public static bool TryLoad()
         {
@@ -55,14 +55,11 @@ namespace Rendering
                     return false;
                 }
 
-                if (!Shader.isSupported)
-                {
-                    Debug.LogError("[KellyUtils] SMAA shader is not supported on this platform.");
-                    Shader = null;
-                    return false;
-                }
+                if (Shader.isSupported) return true;
 
-                return true;
+                Debug.LogError("[KellyUtils] SMAA shader is not supported on this platform.");
+                Shader = null;
+                return false;
             }
             catch (Exception ex)
             {
@@ -121,23 +118,20 @@ namespace Rendering
         }
 
         /// <summary>
-        ///     Gets the byte size of one pixel in the given format, or zero if the format is not one
-        ///     this loader knows how to size. Only the two formats the lookup tables actually use are
-        ///     listed, so introducing a third without updating this fails loudly instead of silently
-        ///     computing the wrong expected length.
+        /// Gets the byte size of one pixel in the given format, or zero if the format is not one
+        /// this loader knows how to size. Only the two formats the lookup tables actually use are
+        /// listed, so introducing a third without updating this fails loudly instead of silently
+        /// computing the wrong expected length.
         /// </summary>
         private static int GetBytesPerPixel(TextureFormat format)
         {
-            switch (format)
+            return format switch
             {
                 // Unity's RG16 is 16 bits total (two 8-bit channels), not 16 per channel.
-                case TextureFormat.RG16:
-                    return 2;
-                case TextureFormat.R8:
-                    return 1;
-                default:
-                    return 0;
-            }
+                TextureFormat.RG16 => 2,
+                TextureFormat.R8 => 1,
+                _ => 0
+            };
         }
 
         private static Texture2D CreateLookupTexture(

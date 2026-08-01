@@ -2,20 +2,24 @@
 using Assets.Scripts;
 using Assets.Scripts.Flight.GameView.Cameras;
 using HarmonyLib;
+using JetBrains.Annotations;
 using UnityEngine;
 
 namespace Patches
 {
     /// <summary>
-    ///     Harmony postfix patch for the private <see cref="CameraController.AdjustCameraClipPlanes" />.
-    ///     The stock method derives <c>nearClipPlane</c> from the camera's distance to its target, then
-    ///     sets <c>farClipPlane = 10000 * Mathf.Min(nearClipPlane, 1f)</c>. In any
-    ///     <see cref="FirstPersonCameraController" /> (astronaut eyes or a physical Camera part), that
-    ///     distance is near zero, so <c>nearClipPlane</c> collapses to its 0.1 floor and
-    ///     <c>farClipPlane</c> collapses to as little as 1000 m, visibly reducing terrain scatter (Juno
-    ///     Parallax) and shadow draw distance. This postfix forces a sane floor for <c>farClipPlane</c>
-    ///     to make it stay at a normal full-range value in first-person view.
+    /// Harmony postfix patch for the private <see cref="CameraController.AdjustCameraClipPlanes" />.
     /// </summary>
+    /// <remarks>
+    /// The stock method derives <c>nearClipPlane</c> from the camera's distance to its target, then
+    /// sets <c>farClipPlane = 10000 * Mathf.Min(nearClipPlane, 1f)</c>. In any
+    /// <see cref="FirstPersonCameraController" /> (astronaut eyes or a physical Camera part), that
+    /// distance is near zero, so <c>nearClipPlane</c> collapses to its 0.1 floor and
+    /// <c>farClipPlane</c> collapses to as little as 1000 m, visibly reducing terrain scatter (Juno
+    /// Parallax) and shadow draw distance. This postfix forces a sane floor for <c>farClipPlane</c>
+    /// to make it stay at a normal full-range value in first-person view.
+    /// </remarks>
+    [UsedImplicitly]
     [HarmonyPatch(typeof(CameraController), "AdjustCameraClipPlanes")] // private, so nameof won't work
     internal static class CameraControllerClipPlanePatch
     {
@@ -25,15 +29,15 @@ namespace Patches
         private static readonly int CloudCameraSplitFeatherId = Shader.PropertyToID("_CloudCameraSplitFeather");
         private static readonly int CloudCameraSplitModeId = Shader.PropertyToID("_CloudCameraSplitMode");
 
-        // Cahced reflected accessors for the private near/far camera fields on CameraController.
+        // Cached reflected accessors for the private near/far camera fields on CameraController.
         private static readonly AccessTools.FieldRef<CameraController, Camera> NearCameraRef =
             AccessTools.FieldRefAccess<CameraController, Camera>("_nearCamera");
 
         private static readonly AccessTools.FieldRef<CameraController, Camera> FarCameraRef =
             AccessTools.FieldRefAccess<CameraController, Camera>("_farCamera");
 
-        // ReSharper disable once UnusedMember.Local
         [SuppressMessage("ReSharper", "InconsistentNaming")]
+        [UsedImplicitly]
         [HarmonyPostfix]
         private static void Postfix(CameraController __instance)
         {

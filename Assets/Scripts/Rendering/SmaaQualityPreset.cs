@@ -1,12 +1,14 @@
+using System.Diagnostics.CodeAnalysis;
 using ModApi.Settings.Core;
 
 namespace Rendering
 {
     /// <summary>
-    ///     Quality presets exposed by the reference SMAA implementation. Each maps to one of the
-    ///     <c>SMAA_PRESET_*</c> shader keywords, which control the edge-detection threshold and the
-    ///     number of search steps used when tracing an edge.
+    /// Quality presets exposed by the reference SMAA implementation. Each maps to one of the
+    /// <c>SMAA_PRESET_*</c> shader keywords, which control the edge-detection threshold and the
+    /// number of search steps used when tracing an edge.
     /// </summary>
+    [SuppressMessage("ReSharper", "UnusedMember.Global")]
     public enum SmaaQualityPreset
     {
         [EnumOption("Fastest. Threshold 0.15 with 4 search steps, and no diagonal or corner detection.")]
