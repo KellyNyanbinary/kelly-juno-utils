@@ -66,18 +66,15 @@ namespace Flight
         }
 
         /// <summary>
-        /// Gets the length of the body's solar day in seconds, or zero if it cannot be determined.
+        /// Gets the rate (rad/s) at which the body rotates relative to the sun. It is positive when
+        /// the sun appears to travel westward across the body's sky, as it does on a prograde body.
         /// </summary>
         /// <param name="planet">The celestial body.</param>
-        /// <returns>The solar day length in seconds, or zero.</returns>
-        public static double GetSolarDayLength(IPlanetNode planet)
+        /// <returns>The synodic angular rate in rad/s, or zero if it cannot be determined.</returns>
+        private static double GetSynodicRate(IPlanetNode planet)
         {
             var planetData = planet?.PlanetData;
-            if (planetData is null)
-                return 0.0;
-
-            var synodicRate = Math.Abs(planetData.AngularVelocity - GetHeliocentricRate(planet));
-            return synodicRate < MinSynodicRate ? 0.0 : TwoPi / synodicRate;
+            return planetData is null ? 0.0 : planetData.AngularVelocity - GetHeliocentricRate(planet);
         }
 
         /// <summary>
@@ -91,17 +88,18 @@ namespace Flight
         {
             timeOfDay = 0.0;
 
-            var dayLength = GetSolarDayLength(planet);
-            if (dayLength <= 0.0 || !TryGetSubSolarLongitude(planet, out var subSolarLongitude))
+            var synodicRate = GetSynodicRate(planet);
+            if (Math.Abs(synodicRate) < MinSynodicRate || !TryGetSubSolarLongitude(planet, out var subSolarLongitude))
                 return false;
 
-            // Longitude increases eastward, so on a prograde body the sub-solar point drifts
-            // westward and the day advances as the sub-solar longitude decreases. The half-day
-            // offset is because the prime meridian faces the sun (noon) at sub-solar longitude 0.
-            var direction = planet.PlanetData.AngularVelocity < 0.0 ? -1.0 : 1.0;
+            // Longitude increases eastward, so where the sun travels westward across the sky the
+            // day advances as the sub-solar longitude decreases, and the other way around where it
+            // travels eastward. The half-day offset is because the prime meridian faces the sun
+            // (noon) at sub-solar longitude 0.
+            var direction = synodicRate < 0.0 ? -1.0 : 1.0;
             var fraction = Wrap01(0.5 - direction * subSolarLongitude / TwoPi);
 
-            timeOfDay = fraction * dayLength;
+            timeOfDay = fraction * (TwoPi / Math.Abs(synodicRate));
             return true;
         }
 
