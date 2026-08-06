@@ -7,6 +7,7 @@ Kelly Utils is a mod for Jundroo's [Juno: New Origins](https://simplerockets.com
 - Fix the floating point precision problem causing Drood FPV and camera PoVs to start shaking over time as they become further from the Unity game scene's origin.
 - Fix first-person camera clip planes so [Parallax](https://www.simplerockets.com/Mods/View/240051/Parallax) terrain scatter appears further.
 - Add optional [SMAA 1x](https://www.iryoku.com/smaa/) anti-aliasing, which preserves texture detail noticeably better than the stock FXAA and DLAA options.
+- Add the home planet's time of day to the flight scene clock, plus an option for the local celestial body's time of day whenever it isn't the home planet. Both use the body's solar day, which accounts for its rotation as well as its angular rate around the sun.
 
 ## License
 
