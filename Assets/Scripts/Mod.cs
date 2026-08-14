@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Flight;
 using HarmonyLib;
 using UnityEngine;
 
@@ -34,6 +35,15 @@ public class Mod : ModApi.Mods.GameMod
         catch (System.Exception ex)
         {
             Debug.LogError("[KellyUtils] Failed to apply Harmony patches: " + ex);
+        }
+
+        try
+        {
+            CelestialClockPanel.Register();
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError("[KellyUtils] Failed to register the celestial clock: " + ex);
         }
     }
 }

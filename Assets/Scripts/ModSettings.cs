@@ -62,18 +62,6 @@ public class ModSettings : SettingsCategory<ModSettings>
     public EnumSetting<SmaaQualityPreset> SmaaQuality { get; private set; }
 
     /// <summary>
-    /// If enabled, appends the home planet's solar time of day at its prime meridian to the
-    /// flight scene clock.
-    /// </summary>
-    public BoolSetting ShowHomePlanetTime { get; private set; }
-
-    /// <summary>
-    /// If enabled, appends the solar time of day at the prime meridian of the celestial body the
-    /// craft is currently at, whenever that body is not the home planet.
-    /// </summary>
-    public BoolSetting ShowLocalBodyTime { get; private set; }
-
-    /// <summary>
     /// Initializes the settings in the category.
     /// </summary>
     protected override void InitializeSettings()
@@ -98,15 +86,5 @@ public class ModSettings : SettingsCategory<ModSettings>
             .SetDescription(
                 "The SMAA quality preset. Higher presets trace edges further and enable diagonal and corner detection. Only used when SMAA is enabled.")
             .SetDefault(SmaaQualityPreset.High);
-
-        ShowHomePlanetTime = CreateBool("Show Home Planet Time")
-            .SetDescription(
-                "If enabled, adds the time of day at the home planet's prime meridian to the flight scene clock. The day length is the planet's solar day, which accounts for both its rotation and its angular rate around the sun.")
-            .SetDefault(true);
-
-        ShowLocalBodyTime = CreateBool("Show Local Body Time")
-            .SetDescription(
-                "If enabled, adds the time of day at the prime meridian of the celestial body the craft is currently at to the flight scene clock, whenever that body is not the home planet.")
-            .SetDefault(true);
     }
 }
