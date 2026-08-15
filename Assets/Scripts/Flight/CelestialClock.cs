@@ -7,29 +7,22 @@ using ModApi.Flight.Sim;
 namespace Flight
 {
     /// <summary>
-    /// Turns the flight's elapsed time into a date and a solar time of day on a celestial body's
-    /// own calendar, or on Earth's.
+    /// Formats universe time as calendar dates, or elapsed time as day counts, using the solar day
+    /// and year of a celestial body or Earth.
     /// </summary>
     /// <remarks>
-    /// A body's day is its <em>solar</em> day, not its sidereal rotation period: the sun only
-    /// returns to the same meridian once the body has rotated a full turn <em>plus</em> the angle it
-    /// swept around the sun in the meantime. The sub-solar longitude therefore drifts at a synodic
-    /// rate that combines the body's rotation with its motion around the sun, and the day length is
-    /// <c>2 * pi / |synodic rate|</c>. For a moon, the heliocentric rate is its parent planet's
-    /// orbital rate, so a tidally locked moon still has a (long) solar day even though it always
-    /// shows the same face to its planet. A body's year is likewise the orbital period around the
-    /// star, which for a moon is again its parent planet's.
+    /// A solar day runs from one local noon to the next. Its length comes from the synodic rate,
+    /// which combines body rotation with motion around the sun: <c>2 * pi / |synodic rate|</c>.
+    /// Moons use their parent planet's heliocentric rate and orbital period.
     /// <para>
-    /// Dates count from year 1, day 1 at flight time zero. Days roll over at the body's local
-    /// midnight rather than at whole multiples of the day length, so a flight that starts in the
-    /// middle of a day spends the rest of that day on day 1.
+    /// Universe calendar days turn over at local midnight and can be numbered from 1 or 0. Elapsed
+    /// clocks count complete solar days from <c>000:00:00:00</c>.
     /// </para>
     /// </remarks>
     internal static class CelestialClock
     {
         /// <summary>
-        /// The name of the body whose calendar the flight time is always also shown on. It is a
-        /// calendar rather than a body, so it works in solar systems that have no such planet.
+        /// The name of the Earth calendar line. It is available even when the system has no Earth.
         /// </summary>
         public const string EarthName = "Earth";
 
@@ -47,7 +40,7 @@ namespace Flight
 
         /// <summary>
         /// The smallest synodic angular rate (rad/s) that still yields a meaningful clock. Below
-        /// this the body is effectively locked to the sun and its day is longer than the solar
+        /// this the body is effectively locked to the sun, and its day is longer than the solar
         /// system is old, so no time of day is reported.
         /// </summary>
         private const double MinSynodicRate = 1e-9;
@@ -91,10 +84,10 @@ namespace Flight
             string.Equals(GetName(planet), EarthName, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
-        /// Formats a flight time as an Earth date and time of day, <c>YYYY-MM-DD HH:MM:SS</c>.
+        /// Formats universe time as an Earth date and time of day, <c>YYYY-MM-DD HH:MM:SS</c>.
         /// </summary>
-        /// <param name="time">The flight time in seconds.</param>
-        /// <param name="startAtOne">Whether the first year, month and day are numbered 1 rather than 0.</param>
+        /// <param name="time">The universe time in seconds.</param>
+        /// <param name="startAtOne">Whether year, month, and day numbering begins at 1.</param>
         /// <returns>The formatted date.</returns>
         public static string FormatEarthDate(double time, bool startAtOne)
         {
@@ -103,8 +96,8 @@ namespace Flight
             if (startAtOne)
                 return date.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
 
-            // The flight starts on the calendar's own first day, so taking one off each field
-            // leaves the whole years, months and days that have passed since.
+            // Universe time starts on the calendar's own first day, so taking one off each field
+            // leaves the whole years, months, and days that have passed.
             return string.Format(
                 CultureInfo.InvariantCulture,
                 "{0:0000}-{1:00}-{2:00} {3:00}:{4:00}:{5:00}",
@@ -117,41 +110,56 @@ namespace Flight
         }
 
         /// <summary>
-        /// Tries to format a flight time as a date and solar time of day on a body's own calendar,
-        /// <c>YYYY-DD HH:MM:SS</c>. The body has no months, so the day is its day of the year, and
-        /// its hours are stock hours, of which a day that is not 24 hours long simply has more or
-        /// fewer than 24.
+        /// Formats elapsed time as a count of whole days followed by the time within the current day.
+        /// </summary>
+        /// <param name="time">The elapsed time in seconds.</param>
+        /// <param name="dayLength">The length of a day in seconds.</param>
+        /// <returns>The formatted elapsed time, <c>DDD:HH:MM:SS</c>.</returns>
+        public static string FormatElapsedDays(double time, double dayLength)
+        {
+            var elapsedTime = Math.Max(time, 0.0);
+            var day = (long)(elapsedTime / dayLength);
+            return FormatElapsedDayCount(day, elapsedTime - day * dayLength);
+        }
+
+        /// <summary>
+        /// Tries to format universe time as a date and solar time of day on a body's own calendar,
+        /// <c>YYYY-DD HH:MM:SS</c>. Body calendars omit months, so the day field is the day of the
+        /// year. Hours use stock one-hour units and may run past 23.
         /// </summary>
         /// <param name="planet">The celestial body.</param>
-        /// <param name="time">The flight time in seconds.</param>
-        /// <param name="startAtOne">Whether the first year and day are numbered 1 rather than 0.</param>
+        /// <param name="time">The universe time in seconds.</param>
+        /// <param name="startAtOne">Whether year and day numbering begins at 1.</param>
         /// <param name="date">The formatted date.</param>
         /// <param name="calendar">The formatted length of the body's year and day.</param>
         /// <returns><c>true</c> if a date could be computed; otherwise, <c>false</c>.</returns>
-        public static bool TryFormatDate(
-            IPlanetNode planet, double time, bool startAtOne, out string date, out string calendar)
+        public static bool TryFormatCalendarDate(
+            IPlanetNode planet,
+            double time,
+            bool startAtOne,
+            out string date,
+            out string calendar)
         {
             date = null;
             calendar = null;
 
-            var synodicRate = GetSynodicRate(planet);
-            if (Math.Abs(synodicRate) < MinSynodicRate || !TryGetSubSolarLongitude(planet, out var subSolarLongitude))
+            if (!TryGetCalendarProperties(planet, out var dayLength, out var daysPerYear, out calendar) ||
+                !TryGetSubsolarLongitude(planet, out var subsolarLongitude))
                 return false;
 
-            // The sub-solar longitude advances at the synodic rate, so the day advances along with
-            // it, or against it where the rate is negative. The half-day offset is because the
-            // prime meridian faces the sun (noon) at sub-solar longitude 0.
-            var dayLength = TwoPi / Math.Abs(synodicRate);
-            var timeOfDay = Wrap01(0.5 + Math.Sign(synodicRate) * subSolarLongitude / TwoPi) * dayLength;
+            var synodicRate = GetSynodicRate(planet);
+            // The subsolar longitude advances at the synodic rate. The half-day offset is because
+            // the prime meridian faces the sun (noon) at subsolar longitude 0.
+            var timeOfDay =
+                Wrap01(0.5 + Math.Sign(synodicRate) * subsolarLongitude / TwoPi) * dayLength;
 
-            // What is left once the current day is taken off is a whole number of days, give or
-            // take the rounding of the geometry the time of day comes from.
+            // Removing the current partial day leaves a whole number of days, give or take the
+            // rounding of the geometry the time of day comes from.
             var day = Math.Max((long)Math.Round((time - timeOfDay) / dayLength), 0L);
             var year = 0L;
 
             // A year rarely holds a whole number of days, so a year starts on the first day that
             // begins after the orbit does, which leaves years one day longer than others now and then.
-            var daysPerYear = GetYearLength(planet) / dayLength;
             if (HasYear(daysPerYear))
             {
                 year = (long)(day / daysPerYear);
@@ -165,7 +173,26 @@ namespace Flight
                 year + origin,
                 day + origin,
                 FormatTimeOfDay(timeOfDay));
-            calendar = FormatCalendar(daysPerYear, dayLength / 3600.0);
+            return true;
+        }
+
+        /// <summary>
+        /// Tries to format elapsed time in a body's solar days as <c>DDD:HH:MM:SS</c>.
+        /// </summary>
+        /// <param name="planet">The celestial body.</param>
+        /// <param name="time">The time elapsed in seconds.</param>
+        /// <param name="elapsed">The formatted elapsed time.</param>
+        /// <param name="calendar">The formatted length of the body's year and day.</param>
+        /// <returns><c>true</c> if the body's solar day could be computed; otherwise, <c>false</c>.</returns>
+        public static bool TryFormatElapsedDays(
+            IPlanetNode planet, double time, out string elapsed, out string calendar)
+        {
+            elapsed = null;
+            calendar = null;
+            if (!TryGetCalendarProperties(planet, out var dayLength, out _, out calendar))
+                return false;
+
+            elapsed = FormatElapsedDays(time, dayLength);
             return true;
         }
 
@@ -174,12 +201,48 @@ namespace Flight
         /// </summary>
         /// <param name="daysPerYear">The number of days in the year, if it has one.</param>
         /// <param name="hoursPerDay">The number of stock hours in the day.</param>
+        /// <param name="earthDaysPerYear">The number of Earth days in the year, if it should be shown.</param>
         /// <returns>The formatted lengths.</returns>
-        public static string FormatCalendar(double daysPerYear, double hoursPerDay) =>
+        public static string FormatCalendar(
+            double daysPerYear, double hoursPerDay, double? earthDaysPerYear = null) =>
             HasYear(daysPerYear)
-                ? string.Format(
-                    CultureInfo.InvariantCulture, "{0:N1} days/year, {1:N2} hours/day", daysPerYear, hoursPerDay)
+                ? FormatYearAndDay(daysPerYear, hoursPerDay, earthDaysPerYear)
                 : string.Format(CultureInfo.InvariantCulture, "{0:N2} hours/day", hoursPerDay);
+
+        private static string FormatYearAndDay(
+            double daysPerYear, double hoursPerDay, double? earthDaysPerYear)
+        {
+            var calendar = string.Format(
+                CultureInfo.InvariantCulture, "{0:N1} days/year, {1:N2} hours/day", daysPerYear, hoursPerDay);
+            return earthDaysPerYear.HasValue
+                ? string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}\n  {1:N1} Earth days/year",
+                    calendar,
+                    earthDaysPerYear.Value)
+                : calendar;
+        }
+
+        private static string FormatElapsedDayCount(long day, double timeOfDay) =>
+            string.Format(CultureInfo.InvariantCulture, "{0:000}:{1}", day, FormatTimeOfDay(timeOfDay));
+
+        private static bool TryGetCalendarProperties(
+            IPlanetNode planet, out double dayLength, out double daysPerYear, out string calendar)
+        {
+            dayLength = 0.0;
+            daysPerYear = 0.0;
+            calendar = null;
+
+            var synodicRate = GetSynodicRate(planet);
+            if (Math.Abs(synodicRate) < MinSynodicRate)
+                return false;
+
+            dayLength = TwoPi / Math.Abs(synodicRate);
+            var yearLength = GetYearLength(planet);
+            daysPerYear = yearLength / dayLength;
+            calendar = FormatCalendar(daysPerYear, dayLength / 3600.0, yearLength / 86400.0);
+            return true;
+        }
 
         /// <summary>
         /// Gets whether a body's orbit yields a year that can be counted in its own days.
@@ -203,14 +266,13 @@ namespace Flight
         }
 
         /// <summary>
-        /// Gets the rate (rad/s) at which the sub-solar longitude drifts, that is, how fast the sun
+        /// Gets the rate (rad/s) at which the subsolar longitude drifts, that is, how fast the sun
         /// travels across the body's sky.
         /// </summary>
         /// <remarks>
-        /// The body's rotation and its motion around the sun both carry the sub-solar longitude, so
-        /// the synodic rate is their sum. They combine rather than cancel because the game gives a
-        /// prograde rotation a negative angular velocity while prograde orbital motion advances
-        /// longitude positively. A body tidally locked to the sun consequently has a rate of zero.
+        /// The game stores prograde rotation as a negative angular velocity, while prograde orbital
+        /// motion advances longitude positively. Adding the rates gives zero for a body locked to
+        /// the sun.
         /// </remarks>
         /// <param name="planet">The celestial body.</param>
         /// <returns>The synodic angular rate in rad/s, or zero if it cannot be determined.</returns>
@@ -221,8 +283,7 @@ namespace Flight
         }
 
         /// <summary>
-        /// Formats a time of day as <c>HH:MM:SS</c>. A body whose solar day is longer than 24 stock
-        /// hours simply keeps counting hours past 24.
+        /// Formats a time of day as <c>HH:MM:SS</c>. Long solar days can run past hour 23.
         /// </summary>
         /// <param name="timeOfDay">The time of day in seconds.</param>
         /// <returns>The formatted time of day.</returns>
@@ -248,7 +309,7 @@ namespace Flight
 
         /// <summary>
         /// Gets the angular rate (rad/s) at which the body's motion around the star carries the
-        /// sub-solar longitude. It is positive for a prograde orbit.
+        /// subsolar longitude. It is positive for a prograde orbit.
         /// </summary>
         /// <param name="planet">The celestial body.</param>
         /// <returns>The heliocentric angular rate in rad/s, or zero for the star itself.</returns>
@@ -286,9 +347,9 @@ namespace Flight
         /// Tries to get the longitude (radians) of the point on the body directly beneath the sun.
         /// </summary>
         /// <param name="planet">The celestial body.</param>
-        /// <param name="longitude">The sub-solar longitude in radians.</param>
+        /// <param name="longitude">The subsolar longitude in radians.</param>
         /// <returns><c>true</c> if the longitude could be computed; otherwise, <c>false</c>.</returns>
-        private static bool TryGetSubSolarLongitude(IPlanetNode planet, out double longitude)
+        private static bool TryGetSubsolarLongitude(IPlanetNode planet, out double longitude)
         {
             longitude = 0.0;
 

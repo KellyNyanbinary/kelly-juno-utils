@@ -7,7 +7,7 @@ Kelly Utils is a mod for Jundroo's [Juno: New Origins](https://simplerockets.com
 - Fix the floating point precision problem causing Drood FPV and camera PoVs to start shaking over time as they become further from the Unity game scene's origin.
 - Fix first-person camera clip planes so [Parallax](https://www.simplerockets.com/Mods/View/240051/Parallax) terrain scatter appears further.
 - Add optional [SMAA 1x](https://www.iryoku.com/smaa/) anti-aliasing, which preserves texture detail noticeably better than the stock FXAA and DLAA options.
-- Add a date and time of day row to the flight scene clock. It always shows the flight time on Earth's calendar (`Earth YYYY-MM-DD hh:mm:ss`), plus the home planet's and, once the craft has left it, the current celestial body's own calendar (`Droo YYYY-DD hh:mm:ss`). Dates count from year 1, month 1, day 1 at flight time zero, or from 0 if you would rather each field counted the whole years, months and days that have passed. Each body uses its own solar day and its orbital period around the sun.
+- Add a multi-calendar row to the flight scene clock. Universe time is shown as an Earth date (`Earth YYYY-MM-DD hh:mm:ss`) and in the home and current bodies' own calendars (`Droo YYYY-DD hh:mm:ss`). Click the row to show elapsed time since craft launch (`T+DDD:hh:mm:ss`) or since switching to the current craft (`S+DDD:hh:mm:ss`). Universe dates can start at either 1 or 0; elapsed clocks always start at `000:00:00:00`. Each body uses its own solar day and orbit around the sun.
 
 ## License
 

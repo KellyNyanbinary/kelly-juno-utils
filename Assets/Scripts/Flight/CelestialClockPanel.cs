@@ -1,8 +1,10 @@
+using System;
 using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Xml.Linq;
 using Assets.Scripts;
+using ModApi.Craft;
 using ModApi.Flight.Sim;
 using ModApi.Ui;
 using TMPro;
@@ -12,33 +14,34 @@ using UnityEngine;
 namespace Flight
 {
     /// <summary>
-    /// An extra row in the flight scene's time panel showing the flight's date and time of day on
-    /// Earth's calendar, on the home planet's, and on that of the body the craft is at.
+    /// An extra row in the flight scene's time panel showing universe dates or elapsed time using
+    /// Earth days and the solar calendars of the home planet and the body the craft is at.
     /// </summary>
     /// <remarks>
-    /// The stock clock only shows mission elapsed time or the total elapsed time in days, neither
-    /// of which says anything about the date or about where the sun is. The row is injected into
-    /// the stock time panel's XML through ModApi's user interface build action, so this owns a
-    /// label of its own rather than rewriting the stock clock's, and the panel's own layout places
-    /// and sizes it. A single instance of this, living for as long as the mod does, keeps the label
-    /// up to date.
+    /// The row is injected into the stock time panel's XML through ModApi's user interface build
+    /// action. The panel's layout places and sizes it, while one persistent instance updates it.
     /// </remarks>
     internal class CelestialClockPanel : MonoBehaviour
     {
+        private enum ClockOrigin
+        {
+            Universe,
+            CraftLaunch,
+            CraftSession
+        }
+
         private const string RowId = "kelly-utils-clock-row";
         private const string TextId = "kelly-utils-clock-text";
         private const string FontSize = "14";
 
-        // Explains the calendar, and is also what makes the row a raycast target, which it has to
-        // be for the tooltip to be raised at all. The lines are kept short because the tooltip is
-        // as wide as its widest line.
-        private const string TooltipFormat =
-            "Dates start at year {0}, day {0} at flight start.\n" +
-            "A day is a solar day: noon to noon, not one\n" +
-            "rotation. A year is one orbit around the sun,\n" +
-            "and a moon keeps its planet's. A new year\n" +
-            "starts on the next whole day, not partway\n" +
-            "through one.";
+        // The tooltip attribute also makes the row a raycast target. Keep lines short because the
+        // tooltip does not wrap automatically.
+        private const string CalendarExplanation =
+            "A day is a solar day: noon to noon instead of\n" +
+            "one rotation. A year is one orbit around the\n" +
+            "sun, and a moon keeps its planet's. A new year\n" +
+            "starts on the next whole day rather than\n" +
+            "partway through one.";
 
         // Vertical padding (px) added around the text to size the row, and the height the row is
         // built with before any text has been measured.
@@ -53,7 +56,10 @@ namespace Flight
 
         private float _nextSearchTime;
         private long _second = long.MinValue;
-        private bool _startAtOne;
+        private bool _datesStartAtOne;
+        private ClockOrigin _clockOrigin;
+        private ICraftNode _activeCraft;
+        private double _sessionStartTime;
         private bool _rowVisible;
         private int _rowHeight = InitialRowHeight;
 
@@ -95,7 +101,9 @@ namespace Flight
                 new XAttribute("class", "flight-panel"),
                 new XAttribute("preferredHeight", InitialRowHeight),
                 new XAttribute("active", "false"),
-                new XAttribute("tooltip", BuildTooltip(ModSettings.Instance.DatesStartAtOne.Value)),
+                new XAttribute(
+                    "tooltip",
+                    BuildTooltip(ModSettings.Instance.DatesStartAtOne.Value, ClockOrigin.Universe)),
                 new XElement(
                     ns + "TextMeshPro",
                     new XAttribute("id", TextId),
@@ -104,27 +112,20 @@ namespace Flight
                     new XAttribute("alignment", "Center"),
                     new XAttribute("text", string.Empty)));
 
-            // Directly under the clock, and above the adjust panel so the row does not move as that
-            // panel shows and hides underneath it.
+            // Keep the row above the adjustment panel so it stays put when that panel toggles.
             var adjustPanel = container.Elements().FirstOrDefault(e => (string)e.Attribute("id") == "adjust-panel");
             if (adjustPanel is null)
-            {
                 container.Add(row);
-            }
             else
-            {
                 adjustPanel.AddBeforeSelf(row);
-            }
         }
 
         /// <summary>
         /// Looks for the injected row in the flight scene's user interface.
         /// </summary>
         /// <remarks>
-        /// The layout cannot hand the row over itself: the stock time panel's controller overrides
-        /// <c>LayoutRebuilt</c> without calling its base, so no layout rebuilt callback is raised
-        /// for it. The row is instead searched for, which is safe because the id only exists in the
-        /// layout injected into above.
+        /// <c>TimePanelController.LayoutRebuilt</c> skips its base implementation, so ModApi rebuild
+        /// callbacks never run for this layout. The injected id makes the fallback search unambiguous.
         /// </remarks>
         /// <returns>Whether the row was found.</returns>
         private bool TrySearchForRow()
@@ -143,6 +144,7 @@ namespace Flight
 
                 _row = row;
                 _text = text;
+                _row.AddOnClickEvent(CycleClockOrigin);
                 _rowVisible = false;
                 _rowHeight = InitialRowHeight;
                 _second = long.MinValue;
@@ -154,44 +156,100 @@ namespace Flight
 
         private void Update()
         {
+            var flightScene = Game.Instance.FlightScene;
+            var universeTime = flightScene?.FlightState?.Time ?? 0.0;
+            var craft = flightScene?.CraftNode;
+            if (!ReferenceEquals(craft, _activeCraft))
+            {
+                _activeCraft = craft;
+                _sessionStartTime = universeTime;
+                _second = long.MinValue;
+            }
+
             // The label is destroyed with the flight scene, so this falls back to searching.
             if (_text == null && !TrySearchForRow()) return;
 
-            // Every displayed clock reads whole seconds of flight time, so there is nothing to
-            // redraw until that second, or the setting the dates are numbered by, changes.
-            var flightScene = Game.Instance.FlightScene;
-            var time = flightScene?.FlightState?.Time ?? 0.0;
+            // All formats show whole seconds. Refresh when the second or numbering setting changes.
+            var time = GetClockTime(craft, universeTime);
             var second = (long)time;
-            var startAtOne = ModSettings.Instance.DatesStartAtOne.Value;
-            if (second == _second && startAtOne == _startAtOne) return;
+            var datesStartAtOne = ModSettings.Instance.DatesStartAtOne.Value;
+            if (second == _second && datesStartAtOne == _datesStartAtOne) return;
 
             _second = second;
-            _startAtOne = startAtOne;
-            Refresh(flightScene?.CraftNode?.Parent, time, startAtOne);
+            _datesStartAtOne = datesStartAtOne;
+            Refresh(craft?.Parent, time, datesStartAtOne);
+        }
+
+        private void CycleClockOrigin()
+        {
+            _clockOrigin = _clockOrigin switch
+            {
+                ClockOrigin.Universe => ClockOrigin.CraftLaunch,
+                ClockOrigin.CraftLaunch => ClockOrigin.CraftSession,
+                _ => ClockOrigin.Universe
+            };
+            _second = long.MinValue;
+        }
+
+        /// <summary>
+        /// Gets the time from the selected origin. Merged craft use their earliest constituent
+        /// launch; session time starts when the craft becomes active.
+        /// </summary>
+        /// <param name="craft">The active craft.</param>
+        /// <param name="universeTime">The current universe time.</param>
+        /// <returns>The non-negative time elapsed from the selected origin, in seconds.</returns>
+        private double GetClockTime(ICraftNode craft, double universeTime)
+        {
+            var origin = _clockOrigin switch
+            {
+                ClockOrigin.CraftLaunch => GetLaunchTime(craft, universeTime),
+                ClockOrigin.CraftSession => _sessionStartTime,
+                _ => 0.0
+            };
+
+            return Math.Max(universeTime - origin, 0.0);
+        }
+
+        private static double GetLaunchTime(ICraftNode craft, double fallback)
+        {
+            var launchTime = fallback;
+            if (craft is null)
+                return launchTime;
+
+            foreach (var data in craft.InitialCraftNodeData)
+                launchTime = Math.Min(launchTime, data.LaunchTime);
+
+            return launchTime;
         }
 
         /// <summary>
         /// Rebuilds the row's text and tooltip.
         /// </summary>
-        /// <param name="localBody">The celestial body the craft is at.</param>
-        /// <param name="time">The flight time in seconds.</param>
-        /// <param name="startAtOne">Whether the first year and day are numbered 1 rather than 0.</param>
+        /// <param name="localBody">The celestial body that the craft is at.</param>
+        /// <param name="time">The time since the selected origin, in seconds.</param>
+        /// <param name="startAtOne">Whether universe-date numbering begins at 1.</param>
         private void Refresh(IPlanetNode localBody, double time, bool startAtOne)
         {
             var homePlanet = CelestialClock.GetHomePlanet(localBody);
             var lines = new StringBuilder();
-            var tooltip = new StringBuilder(BuildTooltip(startAtOne));
+            var tooltip = new StringBuilder(BuildTooltip(startAtOne, _clockOrigin));
+            var universeDate = _clockOrigin == ClockOrigin.Universe;
+            var prefix = GetClockPrefix(_clockOrigin);
+            var earthTime = universeDate
+                ? CelestialClock.FormatEarthDate(time, startAtOne)
+                : CelestialClock.FormatElapsedDays(time, CelestialClock.EarthHoursPerDay * 3600.0);
 
             // Earth's calendar is always shown, so a body that keeps it needs no line of its own.
-            AppendLine(lines, tooltip, CelestialClock.EarthName, CelestialClock.FormatEarthDate(time, startAtOne),
+            AppendLine(lines, tooltip, CelestialClock.EarthName,
+                prefix + earthTime,
                 CelestialClock.FormatCalendar(CelestialClock.EarthDaysPerYear, CelestialClock.EarthHoursPerDay));
 
             if (!CelestialClock.IsEarth(homePlanet))
-                AppendBody(lines, tooltip, homePlanet, time, startAtOne);
+                AppendBody(lines, tooltip, homePlanet, time, startAtOne, _clockOrigin);
 
             // The local body only adds a line of its own once the craft has left the home planet.
             if (!ReferenceEquals(localBody, homePlanet) && !CelestialClock.IsEarth(localBody))
-                AppendBody(lines, tooltip, localBody, time, startAtOne);
+                AppendBody(lines, tooltip, localBody, time, startAtOne, _clockOrigin);
 
             SetRow(lines.ToString(), tooltip.ToString());
         }
@@ -199,10 +257,50 @@ namespace Flight
         /// <summary>
         /// Builds the part of the tooltip that explains the calendar.
         /// </summary>
-        /// <param name="startAtOne">Whether the first year and day are numbered 1 rather than 0.</param>
+        /// <param name="startAtOne">Whether universe-date numbering begins at 1.</param>
+        /// <param name="origin">The time origin currently shown.</param>
         /// <returns>The explanation.</returns>
-        private static string BuildTooltip(bool startAtOne) =>
-            string.Format(CultureInfo.InvariantCulture, TooltipFormat, startAtOne ? 1 : 0);
+        private static string BuildTooltip(bool startAtOne, ClockOrigin origin)
+        {
+            var tooltip = new StringBuilder()
+                .Append("Showing ").Append(GetClockOriginDescription(origin)).Append(".\n");
+            if (origin == ClockOrigin.CraftLaunch)
+                tooltip.Append("For merged craft, T+ uses the earliest\nconstituent launch.\n");
+
+            tooltip.Append("Click to change the clock's time origin.\n\n");
+            if (origin == ClockOrigin.Universe)
+            {
+                var first = startAtOne ? 1 : 0;
+                tooltip.Append("Dates start at year ").Append(first)
+                    .Append(", day ").Append(first).Append(" at this origin.\n");
+            }
+            else
+            {
+                tooltip.Append("Elapsed time starts at 000:00:00:00.\n");
+            }
+
+            return tooltip.Append(CalendarExplanation).ToString();
+        }
+
+        private static string GetClockOriginDescription(ClockOrigin origin)
+        {
+            return origin switch
+            {
+                ClockOrigin.CraftLaunch => "time since craft launch (T+)",
+                ClockOrigin.CraftSession => "time since switching to this craft (S+)",
+                _ => "time since the universe started"
+            };
+        }
+
+        private static string GetClockPrefix(ClockOrigin origin)
+        {
+            return origin switch
+            {
+                ClockOrigin.CraftLaunch => "T+",
+                ClockOrigin.CraftSession => "S+",
+                _ => string.Empty
+            };
+        }
 
         /// <summary>
         /// Shows the given text and tooltip, sizing the row to the text.
@@ -226,20 +324,37 @@ namespace Flight
         }
 
         /// <summary>
-        /// Appends a body's date, and the lengths of its year and day, if they can be computed.
+        /// Appends a body's clock value and calendar details when available.
         /// </summary>
         /// <param name="lines">The builder of the displayed lines.</param>
         /// <param name="tooltip">The builder of the tooltip.</param>
         /// <param name="planet">The celestial body.</param>
-        /// <param name="time">The flight time in seconds.</param>
-        /// <param name="startAtOne">Whether the first year and day are numbered 1 rather than 0.</param>
+        /// <param name="time">The time since the selected origin, in seconds.</param>
+        /// <param name="startAtOne">Whether universe-date numbering begins at 1.</param>
+        /// <param name="origin">The time origin being displayed.</param>
         private static void AppendBody(
-            StringBuilder lines, StringBuilder tooltip, IPlanetNode planet, double time, bool startAtOne)
+            StringBuilder lines,
+            StringBuilder tooltip,
+            IPlanetNode planet,
+            double time,
+            bool startAtOne,
+            ClockOrigin origin)
         {
-            if (planet is null || !CelestialClock.TryFormatDate(planet, time, startAtOne, out var date, out var calendar))
+            if (planet is null)
                 return;
 
-            AppendLine(lines, tooltip, CelestialClock.GetName(planet), date, calendar);
+            var formatted = origin == ClockOrigin.Universe
+                ? CelestialClock.TryFormatCalendarDate(planet, time, startAtOne, out var value, out var calendar)
+                : CelestialClock.TryFormatElapsedDays(planet, time, out value, out calendar);
+            if (!formatted)
+                return;
+
+            AppendLine(
+                lines,
+                tooltip,
+                CelestialClock.GetName(planet),
+                GetClockPrefix(origin) + value,
+                calendar);
         }
 
         /// <summary>

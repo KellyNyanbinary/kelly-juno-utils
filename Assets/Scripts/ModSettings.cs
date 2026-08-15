@@ -62,9 +62,8 @@ public class ModSettings : SettingsCategory<ModSettings>
     public EnumSetting<SmaaQualityPreset> SmaaQuality { get; private set; }
 
     /// <summary>
-    /// If enabled, the years, months and days of the flight scene clock's date row are numbered
-    /// from 1, as a calendar normally is. If disabled, they are numbered from 0, which reads as
-    /// the number of whole years, months and days that have passed since the flight started.
+    /// Whether universe-time date numbering begins at year, month, and day 1. T+ and S+ always
+    /// begin at day 0.
     /// </summary>
     public BoolSetting DatesStartAtOne { get; private set; }
 
@@ -96,7 +95,7 @@ public class ModSettings : SettingsCategory<ModSettings>
 
         DatesStartAtOne = CreateBool("Dates Start At One")
             .SetDescription(
-                "If enabled, the years, months and days of the flight scene clock's date row are numbered from 1, as a calendar normally is, so a flight starts on year 1, month 1, day 1. If disabled, they are numbered from 0, so a flight starts on 0000-00-00 and each field counts the whole years, months and days that have passed since.")
+                "Starts universe-time dates at year 1, month 1, day 1 instead of 0000-00-00. Does not affect the T+ and S+ elapsed clocks.")
             .SetDefault(true);
     }
 }
