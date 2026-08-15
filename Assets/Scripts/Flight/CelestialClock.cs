@@ -94,11 +94,26 @@ namespace Flight
         /// Formats a flight time as an Earth date and time of day, <c>YYYY-MM-DD HH:MM:SS</c>.
         /// </summary>
         /// <param name="time">The flight time in seconds.</param>
+        /// <param name="startAtOne">Whether the first year, month and day are numbered 1 rather than 0.</param>
         /// <returns>The formatted date.</returns>
-        public static string FormatEarthDate(double time)
+        public static string FormatEarthDate(double time, bool startAtOne)
         {
             var seconds = Math.Min(Math.Max(time, 0.0), (DateTime.MaxValue - DateTime.MinValue).TotalSeconds);
-            return DateTime.MinValue.AddSeconds(seconds).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            var date = DateTime.MinValue.AddSeconds(seconds);
+            if (startAtOne)
+                return date.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+
+            // The flight starts on the calendar's own first day, so taking one off each field
+            // leaves the whole years, months and days that have passed since.
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:0000}-{1:00}-{2:00} {3:00}:{4:00}:{5:00}",
+                date.Year - 1,
+                date.Month - 1,
+                date.Day - 1,
+                date.Hour,
+                date.Minute,
+                date.Second);
         }
 
         /// <summary>
@@ -109,10 +124,12 @@ namespace Flight
         /// </summary>
         /// <param name="planet">The celestial body.</param>
         /// <param name="time">The flight time in seconds.</param>
+        /// <param name="startAtOne">Whether the first year and day are numbered 1 rather than 0.</param>
         /// <param name="date">The formatted date.</param>
         /// <param name="calendar">The formatted length of the body's year and day.</param>
         /// <returns><c>true</c> if a date could be computed; otherwise, <c>false</c>.</returns>
-        public static bool TryFormatDate(IPlanetNode planet, double time, out string date, out string calendar)
+        public static bool TryFormatDate(
+            IPlanetNode planet, double time, bool startAtOne, out string date, out string calendar)
         {
             date = null;
             calendar = null;
@@ -130,19 +147,24 @@ namespace Flight
             // What is left once the current day is taken off is a whole number of days, give or
             // take the rounding of the geometry the time of day comes from.
             var day = Math.Max((long)Math.Round((time - timeOfDay) / dayLength), 0L);
-            var year = 1L;
+            var year = 0L;
 
             // A year rarely holds a whole number of days, so a year starts on the first day that
             // begins after the orbit does, which leaves years one day longer than others now and then.
             var daysPerYear = GetYearLength(planet) / dayLength;
             if (HasYear(daysPerYear))
             {
-                year = (long)(day / daysPerYear) + 1L;
-                day -= (long)Math.Ceiling((year - 1L) * daysPerYear);
+                year = (long)(day / daysPerYear);
+                day -= (long)Math.Ceiling(year * daysPerYear);
             }
 
+            var origin = startAtOne ? 1L : 0L;
             date = string.Format(
-                CultureInfo.InvariantCulture, "{0:0000}-{1:00} {2}", year, day + 1L, FormatTimeOfDay(timeOfDay));
+                CultureInfo.InvariantCulture,
+                "{0:0000}-{1:00} {2}",
+                year + origin,
+                day + origin,
+                FormatTimeOfDay(timeOfDay));
             calendar = FormatCalendar(daysPerYear, dayLength / 3600.0);
             return true;
         }

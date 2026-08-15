@@ -32,8 +32,8 @@ namespace Flight
         // Explains the calendar, and is also what makes the row a raycast target, which it has to
         // be for the tooltip to be raised at all. The lines are kept short because the tooltip is
         // as wide as its widest line.
-        private const string Tooltip =
-            "Dates start at year 1, day 1 at flight start.\n" +
+        private const string TooltipFormat =
+            "Dates start at year {0}, day {0} at flight start.\n" +
             "A day is a solar day: noon to noon, not one\n" +
             "rotation. A year is one orbit around the sun,\n" +
             "and a moon keeps its planet's. A new year\n" +
@@ -53,6 +53,7 @@ namespace Flight
 
         private float _nextSearchTime;
         private long _second = long.MinValue;
+        private bool _startAtOne;
         private bool _rowVisible;
         private int _rowHeight = InitialRowHeight;
 
@@ -94,7 +95,7 @@ namespace Flight
                 new XAttribute("class", "flight-panel"),
                 new XAttribute("preferredHeight", InitialRowHeight),
                 new XAttribute("active", "false"),
-                new XAttribute("tooltip", Tooltip),
+                new XAttribute("tooltip", BuildTooltip(ModSettings.Instance.DatesStartAtOne.Value)),
                 new XElement(
                     ns + "TextMeshPro",
                     new XAttribute("id", TextId),
@@ -157,14 +158,16 @@ namespace Flight
             if (_text == null && !TrySearchForRow()) return;
 
             // Every displayed clock reads whole seconds of flight time, so there is nothing to
-            // redraw until that second changes.
+            // redraw until that second, or the setting the dates are numbered by, changes.
             var flightScene = Game.Instance.FlightScene;
             var time = flightScene?.FlightState?.Time ?? 0.0;
             var second = (long)time;
-            if (second == _second) return;
+            var startAtOne = ModSettings.Instance.DatesStartAtOne.Value;
+            if (second == _second && startAtOne == _startAtOne) return;
 
             _second = second;
-            Refresh(flightScene?.CraftNode?.Parent, time);
+            _startAtOne = startAtOne;
+            Refresh(flightScene?.CraftNode?.Parent, time, startAtOne);
         }
 
         /// <summary>
@@ -172,25 +175,34 @@ namespace Flight
         /// </summary>
         /// <param name="localBody">The celestial body the craft is at.</param>
         /// <param name="time">The flight time in seconds.</param>
-        private void Refresh(IPlanetNode localBody, double time)
+        /// <param name="startAtOne">Whether the first year and day are numbered 1 rather than 0.</param>
+        private void Refresh(IPlanetNode localBody, double time, bool startAtOne)
         {
             var homePlanet = CelestialClock.GetHomePlanet(localBody);
             var lines = new StringBuilder();
-            var tooltip = new StringBuilder(Tooltip);
+            var tooltip = new StringBuilder(BuildTooltip(startAtOne));
 
             // Earth's calendar is always shown, so a body that keeps it needs no line of its own.
-            AppendLine(lines, tooltip, CelestialClock.EarthName, CelestialClock.FormatEarthDate(time),
+            AppendLine(lines, tooltip, CelestialClock.EarthName, CelestialClock.FormatEarthDate(time, startAtOne),
                 CelestialClock.FormatCalendar(CelestialClock.EarthDaysPerYear, CelestialClock.EarthHoursPerDay));
 
             if (!CelestialClock.IsEarth(homePlanet))
-                AppendBody(lines, tooltip, homePlanet, time);
+                AppendBody(lines, tooltip, homePlanet, time, startAtOne);
 
             // The local body only adds a line of its own once the craft has left the home planet.
             if (!ReferenceEquals(localBody, homePlanet) && !CelestialClock.IsEarth(localBody))
-                AppendBody(lines, tooltip, localBody, time);
+                AppendBody(lines, tooltip, localBody, time, startAtOne);
 
             SetRow(lines.ToString(), tooltip.ToString());
         }
+
+        /// <summary>
+        /// Builds the part of the tooltip that explains the calendar.
+        /// </summary>
+        /// <param name="startAtOne">Whether the first year and day are numbered 1 rather than 0.</param>
+        /// <returns>The explanation.</returns>
+        private static string BuildTooltip(bool startAtOne) =>
+            string.Format(CultureInfo.InvariantCulture, TooltipFormat, startAtOne ? 1 : 0);
 
         /// <summary>
         /// Shows the given text and tooltip, sizing the row to the text.
@@ -220,9 +232,11 @@ namespace Flight
         /// <param name="tooltip">The builder of the tooltip.</param>
         /// <param name="planet">The celestial body.</param>
         /// <param name="time">The flight time in seconds.</param>
-        private static void AppendBody(StringBuilder lines, StringBuilder tooltip, IPlanetNode planet, double time)
+        /// <param name="startAtOne">Whether the first year and day are numbered 1 rather than 0.</param>
+        private static void AppendBody(
+            StringBuilder lines, StringBuilder tooltip, IPlanetNode planet, double time, bool startAtOne)
         {
-            if (planet is null || !CelestialClock.TryFormatDate(planet, time, out var date, out var calendar))
+            if (planet is null || !CelestialClock.TryFormatDate(planet, time, startAtOne, out var date, out var calendar))
                 return;
 
             AppendLine(lines, tooltip, CelestialClock.GetName(planet), date, calendar);
