@@ -325,10 +325,10 @@ namespace Flight
             var year = earthDaysPerYear.HasValue
                 ? string.Format(
                     CultureInfo.InvariantCulture,
-                    "{0:N1} days ({1:N1} 24-hour Earth days)",
+                    "{0:N2} days ({1:N2} 24-hour Earth days)",
                     daysPerYear,
                     earthDaysPerYear.Value)
-                : string.Format(CultureInfo.InvariantCulture, "{0:N1} days", daysPerYear);
+                : string.Format(CultureInfo.InvariantCulture, "{0:N2} days", daysPerYear);
             return string.Format(
                 CultureInfo.InvariantCulture,
                 "  Year: {0}\n  Day: {1:N2} hours",
