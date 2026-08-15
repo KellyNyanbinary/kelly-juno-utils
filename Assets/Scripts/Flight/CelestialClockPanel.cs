@@ -20,6 +20,11 @@ namespace Flight
     /// <remarks>
     /// The row is injected into the stock time panel's XML through ModApi's user interface build
     /// action. The panel's layout places and sizes it, while one persistent instance updates it.
+    /// <para>
+    /// The Gregorian Earth clock uses real-world calendar constants. A planetary system can define
+    /// its Earth with different day or year lengths, or a different initial rotation, so the panel
+    /// can also show a separate in-system Earth clock when the two disagree.
+    /// </para>
     /// </remarks>
     internal class CelestialClockPanel : MonoBehaviour
     {
@@ -28,6 +33,25 @@ namespace Flight
             Universe,
             CraftLaunch,
             CraftSession
+        }
+
+        private readonly struct ClockContext
+        {
+            public ClockContext(
+                double time, double universeTime, bool startAtOne, ClockOrigin origin)
+            {
+                Time = time;
+                UniverseTime = universeTime;
+                StartAtOne = startAtOne;
+                Origin = origin;
+            }
+
+            public double Time { get; }
+            public double UniverseTime { get; }
+            public bool StartAtOne { get; }
+            public ClockOrigin Origin { get; }
+            public bool IsUniverseDate => Origin == ClockOrigin.Universe;
+            public string Prefix => GetClockPrefix(Origin);
         }
 
         private const string RowId = "kelly-utils-clock-row";
@@ -57,6 +81,7 @@ namespace Flight
         private float _nextSearchTime;
         private long _second = long.MinValue;
         private bool _datesStartAtOne;
+        private bool _showInSystemEarthClock;
         private ClockOrigin _clockOrigin;
         private ICraftNode _activeCraft;
         private double _sessionStartTime;
@@ -103,7 +128,10 @@ namespace Flight
                 new XAttribute("active", "false"),
                 new XAttribute(
                     "tooltip",
-                    BuildTooltip(ModSettings.Instance.DatesStartAtOne.Value, ClockOrigin.Universe)),
+                    LeftAlignTooltip(
+                        BuildTooltip(
+                            ModSettings.Instance.DatesStartAtOne.Value,
+                            ClockOrigin.Universe))),
                 new XElement(
                     ns + "TextMeshPro",
                     new XAttribute("id", TextId),
@@ -169,15 +197,22 @@ namespace Flight
             // The label is destroyed with the flight scene, so this falls back to searching.
             if (_text == null && !TrySearchForRow()) return;
 
-            // All formats show whole seconds. Refresh when the second or numbering setting changes.
+            // All formats show whole seconds. Refresh when the second or a clock setting changes.
             var time = GetClockTime(craft, universeTime);
             var second = (long)time;
             var datesStartAtOne = ModSettings.Instance.DatesStartAtOne.Value;
-            if (second == _second && datesStartAtOne == _datesStartAtOne) return;
+            var showInSystemEarthClock = ModSettings.Instance.ShowInSystemEarthClock.Value;
+            if (second == _second &&
+                datesStartAtOne == _datesStartAtOne &&
+                showInSystemEarthClock == _showInSystemEarthClock)
+                return;
 
             _second = second;
             _datesStartAtOne = datesStartAtOne;
-            Refresh(craft?.Parent, time, datesStartAtOne);
+            _showInSystemEarthClock = showInSystemEarthClock;
+            var context = new ClockContext(
+                time, universeTime, datesStartAtOne, _clockOrigin);
+            Refresh(craft?.Parent, context, showInSystemEarthClock);
         }
 
         private void CycleClockOrigin()
@@ -226,30 +261,27 @@ namespace Flight
         /// Rebuilds the row's text and tooltip.
         /// </summary>
         /// <param name="localBody">The celestial body that the craft is at.</param>
-        /// <param name="time">The time since the selected origin, in seconds.</param>
-        /// <param name="startAtOne">Whether universe-date numbering begins at 1.</param>
-        private void Refresh(IPlanetNode localBody, double time, bool startAtOne)
+        /// <param name="context">The selected clock mode and its time values.</param>
+        /// <param name="showInSystemEarthClock">Whether a disagreeing physical Earth clock is shown.</param>
+        private void Refresh(
+            IPlanetNode localBody,
+            ClockContext context,
+            bool showInSystemEarthClock)
         {
             var homePlanet = CelestialClock.GetHomePlanet(localBody);
+            var earth = CelestialClock.GetEarth(localBody);
             var lines = new StringBuilder();
-            var tooltip = new StringBuilder(BuildTooltip(startAtOne, _clockOrigin));
-            var universeDate = _clockOrigin == ClockOrigin.Universe;
-            var prefix = GetClockPrefix(_clockOrigin);
-            var earthTime = universeDate
-                ? CelestialClock.FormatEarthDate(time, startAtOne)
-                : CelestialClock.FormatElapsedDays(time, CelestialClock.EarthHoursPerDay * 3600.0);
+            var tooltip = new StringBuilder(
+                BuildTooltip(context.StartAtOne, context.Origin));
+            AppendEarth(lines, tooltip, earth, context, showInSystemEarthClock);
 
             // Earth's calendar is always shown, so a body that keeps it needs no line of its own.
-            AppendLine(lines, tooltip, CelestialClock.EarthName,
-                prefix + earthTime,
-                CelestialClock.FormatCalendar(CelestialClock.EarthDaysPerYear, CelestialClock.EarthHoursPerDay));
-
             if (!CelestialClock.IsEarth(homePlanet))
-                AppendBody(lines, tooltip, homePlanet, time, startAtOne, _clockOrigin);
+                AppendBody(lines, tooltip, homePlanet, context);
 
             // The local body only adds a line of its own once the craft has left the home planet.
             if (!ReferenceEquals(localBody, homePlanet) && !CelestialClock.IsEarth(localBody))
-                AppendBody(lines, tooltip, localBody, time, startAtOne, _clockOrigin);
+                AppendBody(lines, tooltip, localBody, context);
 
             SetRow(lines.ToString(), tooltip.ToString());
         }
@@ -302,6 +334,9 @@ namespace Flight
             };
         }
 
+        private static string LeftAlignTooltip(string tooltip) =>
+            "<align=\"left\">" + tooltip + "</align>";
+
         /// <summary>
         /// Shows the given text and tooltip, sizing the row to the text.
         /// </summary>
@@ -310,7 +345,7 @@ namespace Flight
         private void SetRow(string text, string tooltip)
         {
             _text.text = text;
-            _row.Tooltip = tooltip;
+            _row.Tooltip = LeftAlignTooltip(tooltip);
 
             var height = Mathf.CeilToInt(_text.GetPreferredValues(text).y) + RowPadding;
             if (height != _rowHeight)
@@ -329,23 +364,25 @@ namespace Flight
         /// <param name="lines">The builder of the displayed lines.</param>
         /// <param name="tooltip">The builder of the tooltip.</param>
         /// <param name="planet">The celestial body.</param>
-        /// <param name="time">The time since the selected origin, in seconds.</param>
-        /// <param name="startAtOne">Whether universe-date numbering begins at 1.</param>
-        /// <param name="origin">The time origin being displayed.</param>
+        /// <param name="context">The selected clock mode and its time values.</param>
         private static void AppendBody(
             StringBuilder lines,
             StringBuilder tooltip,
             IPlanetNode planet,
-            double time,
-            bool startAtOne,
-            ClockOrigin origin)
+            ClockContext context)
         {
             if (planet is null)
                 return;
 
-            var formatted = origin == ClockOrigin.Universe
-                ? CelestialClock.TryFormatCalendarDate(planet, time, startAtOne, out var value, out var calendar)
-                : CelestialClock.TryFormatElapsedDays(planet, time, out value, out calendar);
+            var formatted = context.IsUniverseDate
+                ? CelestialClock.TryFormatCalendarDate(
+                    planet,
+                    context.Time,
+                    context.StartAtOne,
+                    out var value,
+                    out var calendar)
+                : CelestialClock.TryFormatElapsedDays(
+                    planet, context.Time, out value, out calendar);
             if (!formatted)
                 return;
 
@@ -353,8 +390,81 @@ namespace Flight
                 lines,
                 tooltip,
                 CelestialClock.GetName(planet),
-                GetClockPrefix(origin) + value,
+                context.Prefix + value,
                 calendar);
+        }
+
+        /// <summary>
+        /// Appends the Gregorian Earth clock and, when materially different and enabled, the loaded
+        /// planetary system's physical Earth clock. Its tooltip always describes those differences.
+        /// </summary>
+        private static void AppendEarth(
+            StringBuilder lines,
+            StringBuilder tooltip,
+            IPlanetNode earth,
+            ClockContext context,
+            bool showInSystemClock)
+        {
+            var earthTime = context.IsUniverseDate
+                ? CelestialClock.FormatEarthDate(context.Time, context.StartAtOne)
+                : CelestialClock.FormatElapsedDays(
+                    context.Time, CelestialClock.EarthSecondsPerDay);
+            var earthCalendar = "  Calendar: Gregorian\n" +
+                CelestialClock.FormatCalendar(
+                    CelestialClock.EarthDaysPerYear,
+                    CelestialClock.EarthHoursPerDay);
+            AppendLine(
+                lines,
+                tooltip,
+                CelestialClock.EarthName,
+                context.Prefix + earthTime,
+                earthCalendar);
+
+            if (earth is null ||
+                !CelestialClock.TryGetEarthClockData(
+                    earth, context.UniverseTime, out var earthData) ||
+                !earthData.DiffersFromRealEarth)
+                return;
+
+            var inSystemCalendar = CelestialClock.FormatCalendar(
+                earthData.DaysPerYear, earthData.SolarDayLength / 3600.0);
+            if (earthData.EpochDiffersFromMidnight)
+                inSystemCalendar += "\n  Epoch solar time: " + earthData.EpochSolarTime;
+            AppendTooltipBlock(tooltip, "In-system Earth", inSystemCalendar);
+            if (!showInSystemClock)
+            {
+                tooltip.Append("\n  Enable \"Show In-System Earth Clock\"\n")
+                    .Append("  in Kelly Utils settings to show its clock.");
+                return;
+            }
+
+            if (TryFormatInSystemEarthClock(
+                    earth, context, earthData, out var inSystemTime))
+                AppendDisplayLine(
+                    lines, "In-system Earth", context.Prefix + inSystemTime);
+        }
+
+        private static bool TryFormatInSystemEarthClock(
+            IPlanetNode earth,
+            ClockContext context,
+            CelestialClock.EarthClockData earthData,
+            out string value)
+        {
+            if (context.IsUniverseDate)
+            {
+                return CelestialClock.TryFormatCalendarDate(
+                    earth,
+                    context.Time,
+                    context.StartAtOne,
+                    out value,
+                    out _);
+            }
+
+            value = earthData.DayLengthDiffers
+                ? CelestialClock.FormatElapsedDays(
+                    context.Time, earthData.SolarDayLength)
+                : null;
+            return value is not null;
         }
 
         /// <summary>
@@ -368,13 +478,19 @@ namespace Flight
         private static void AppendLine(
             StringBuilder lines, StringBuilder tooltip, string name, string date, string calendar)
         {
+            AppendDisplayLine(lines, name, date);
+            AppendTooltipBlock(tooltip, name, calendar);
+        }
+
+        private static void AppendDisplayLine(StringBuilder lines, string name, string date)
+        {
             if (lines.Length > 0)
                 lines.Append('\n');
-            else
-                tooltip.Append('\n'); // Separates the description from the list of calendars.
-
             lines.Append(name).Append(' ').Append(date);
-            tooltip.Append('\n').Append(name).Append(": ").Append(calendar);
         }
+
+        private static void AppendTooltipBlock(
+            StringBuilder tooltip, string name, string calendar) =>
+            tooltip.Append("\n\n").Append(name).Append(":\n").Append(calendar);
     }
 }

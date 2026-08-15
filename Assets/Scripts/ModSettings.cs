@@ -68,6 +68,12 @@ public class ModSettings : SettingsCategory<ModSettings>
     public BoolSetting DatesStartAtOne { get; private set; }
 
     /// <summary>
+    /// Whether the loaded Earth's clock is shown when its day, year, or initial rotation differs
+    /// from real Earth.
+    /// </summary>
+    public BoolSetting ShowInSystemEarthClock { get; private set; }
+
+    /// <summary>
     /// Initializes the settings in the category.
     /// </summary>
     protected override void InitializeSettings()
@@ -97,5 +103,10 @@ public class ModSettings : SettingsCategory<ModSettings>
             .SetDescription(
                 "Starts universe-time dates at year 1, month 1, day 1 instead of 0000-00-00. Does not affect the T+ and S+ elapsed clocks.")
             .SetDefault(true);
+
+        ShowInSystemEarthClock = CreateBool("Show In-System Earth Clock")
+            .SetDescription(
+                "A planetary system's Earth can have different day and year lengths or a different initial rotation from real Earth. Shows its universe clock for any difference, and its T+ or S+ clock for a different day length. The clock tooltip always lists disagreeing in-system Earth data.")
+            .SetDefault(false);
     }
 }
