@@ -87,9 +87,10 @@ namespace Flight
             public double SolarDayLength { get; }
             public double DaysPerYear { get; }
             public bool DayLengthDiffers { get; }
-            public bool YearLengthDiffers { get; }
+            private bool YearLengthDiffers { get; }
             public bool EpochDiffersFromMidnight { get; }
             public string EpochSolarTime { get; }
+
             public bool DiffersFromRealEarth =>
                 DayLengthDiffers || YearLengthDiffers || EpochDiffersFromMidnight;
         }
@@ -218,10 +219,14 @@ namespace Flight
 
             calendar = FormatBodyCalendar(planet, properties);
 
-            // Removing the current partial day leaves a whole number of days, give or take the
-            // rounding of the geometry the time of day comes from.
+            // Count local midnights crossed since the epoch. Subtracting the current universe time
+            // from the current solar time recovers the solar time at the epoch.
+            var epochTimeOfDay =
+                GetEpochTimeOfDay(time, timeOfDay, properties.DayLength);
             var day = Math.Max(
-                (long)Math.Round((time - timeOfDay) / properties.DayLength), 0L);
+                (long)Math.Floor(
+                    (time + epochTimeOfDay) / properties.DayLength),
+                0L);
             var year = 0L;
 
             // A year rarely holds a whole number of days, so a year starts on the first day that
@@ -283,7 +288,8 @@ namespace Flight
             {
                 // Solar time advances one second per universe second, so subtracting the current
                 // time recovers the loaded Earth's solar time at the universe epoch.
-                var epochTimeOfDay = Wrap(timeOfDay - time, properties.DayLength);
+                var epochTimeOfDay =
+                    GetEpochTimeOfDay(time, timeOfDay, properties.DayLength);
                 var distanceFromMidnight = Math.Min(
                     epochTimeOfDay, properties.DayLength - epochTimeOfDay);
                 epochDiffers = distanceFromMidnight >= EarthEpochPhaseTolerance;
@@ -504,6 +510,10 @@ namespace Flight
 
         private static double Wrap(double value, double length) =>
             value - Math.Floor(value / length) * length;
+
+        private static double GetEpochTimeOfDay(
+            double time, double timeOfDay, double dayLength) =>
+            Wrap(timeOfDay - time, dayLength);
 
         /// <summary>
         /// Wraps a fraction into the range [0, 1).
