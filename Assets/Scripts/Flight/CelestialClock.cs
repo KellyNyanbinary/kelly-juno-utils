@@ -219,23 +219,10 @@ namespace Flight
 
             calendar = FormatBodyCalendar(planet, properties);
 
-            // Count local midnights crossed since the epoch. Subtracting the current universe time
-            // from the current solar time recovers the solar time at the epoch.
-            var epochTimeOfDay =
-                GetEpochTimeOfDay(time, timeOfDay, properties.DayLength);
-            var day = Math.Max(
-                (long)Math.Floor(
-                    (time + epochTimeOfDay) / properties.DayLength),
-                0L);
-            var year = 0L;
-
-            // A year rarely holds a whole number of days, so a year starts on the first day that
-            // begins after the orbit does, which leaves years one day longer than others now and then.
-            if (HasYear(properties.DaysPerYear))
-            {
-                year = (long)(day / properties.DaysPerYear);
-                day -= (long)Math.Ceiling(year * properties.DaysPerYear);
-            }
+            var elapsedDays =
+                CountElapsedSolarDays(time, timeOfDay, properties.DayLength);
+            SplitCalendarDate(
+                elapsedDays, properties.DaysPerYear, out var year, out var day);
 
             var origin = startAtOne ? 1L : 0L;
             date = string.Format(
@@ -290,17 +277,16 @@ namespace Flight
                 // time recovers the loaded Earth's solar time at the universe epoch.
                 var epochTimeOfDay =
                     GetEpochTimeOfDay(time, timeOfDay, properties.DayLength);
-                var distanceFromMidnight = Math.Min(
-                    epochTimeOfDay, properties.DayLength - epochTimeOfDay);
-                epochDiffers = distanceFromMidnight >= EarthEpochPhaseTolerance;
+                epochDiffers =
+                    EarthEpochDiffersFromMidnight(epochTimeOfDay, properties.DayLength);
                 epochSolarTime = FormatTimeOfDay(epochTimeOfDay);
             }
 
             data = new EarthClockData(
                 properties.DayLength,
                 properties.DaysPerYear,
-                DiffersFrom(properties.DayLength, EarthSecondsPerDay),
-                DiffersFrom(properties.DaysPerYear, EarthDaysPerYear),
+                DiffersByEarthTolerance(properties.DayLength, EarthSecondsPerDay),
+                DiffersByEarthTolerance(properties.DaysPerYear, EarthDaysPerYear),
                 epochDiffers,
                 epochSolarTime);
             return true;
@@ -355,14 +341,26 @@ namespace Flight
             IPlanetNode planet, out CalendarProperties properties)
         {
             properties = default;
-            var synodicRate = GetSynodicRate(planet);
-            if (Math.Abs(synodicRate) < MinSynodicRate)
+            if (!TryGetDayLength(GetSynodicRate(planet), out var dayLength))
                 return false;
 
-            properties = new CalendarProperties(
-                TwoPi / Math.Abs(synodicRate),
-                GetYearLength(planet));
+            var yearLength = GetYearLength(planet);
+            if (!IsFinite(yearLength))
+                return false;
+
+            properties = new CalendarProperties(dayLength, yearLength);
             return true;
+        }
+
+        internal static bool TryGetDayLength(
+            double synodicRate, out double dayLength)
+        {
+            dayLength = 0.0;
+            if (!IsFinite(synodicRate) || Math.Abs(synodicRate) < MinSynodicRate)
+                return false;
+
+            dayLength = TwoPi / Math.Abs(synodicRate);
+            return dayLength > 0.0 && IsFinite(dayLength);
         }
 
         /// <summary>
@@ -372,8 +370,39 @@ namespace Flight
         /// <returns><c>true</c> if the body has a year; otherwise, <c>false</c>.</returns>
         private static bool HasYear(double daysPerYear) => daysPerYear >= 1.0 && !double.IsInfinity(daysPerYear);
 
-        private static bool DiffersFrom(double actual, double expected) =>
+        internal static bool DiffersByEarthTolerance(double actual, double expected) =>
             Math.Abs(actual - expected) > Math.Abs(expected) * EarthComparisonTolerance;
+
+        internal static bool EarthEpochDiffersFromMidnight(
+            double epochTimeOfDay, double dayLength)
+        {
+            var normalizedTime = Wrap(epochTimeOfDay, dayLength);
+            return Math.Min(normalizedTime, dayLength - normalizedTime) >=
+                EarthEpochPhaseTolerance;
+        }
+
+        internal static long CountElapsedSolarDays(
+            double time, double timeOfDay, double dayLength)
+        {
+            var epochTimeOfDay = GetEpochTimeOfDay(time, timeOfDay, dayLength);
+            return Math.Max(
+                (long)Math.Floor((time + epochTimeOfDay) / dayLength),
+                0L);
+        }
+
+        internal static void SplitCalendarDate(
+            long elapsedDays, double daysPerYear, out long year, out long day)
+        {
+            year = 0L;
+            day = elapsedDays;
+            if (!HasYear(daysPerYear))
+                return;
+
+            // A year rarely holds a whole number of days, so a year starts on the first day that
+            // begins after the orbit does, which leaves years one day longer than others now and then.
+            year = (long)(elapsedDays / daysPerYear);
+            day -= (long)Math.Ceiling(year * daysPerYear);
+        }
 
         /// <summary>
         /// Gets the star at the root of the solar system the body belongs to.
@@ -444,7 +473,12 @@ namespace Flight
             // Planet rotation is always around game-space Y. The orbit normal supplies its actual
             // direction around that axis; MeanMotion supplies the full cycle rate. IsPrograde is
             // only imported metadata and can disagree with the generated state vectors.
-            return Math.Sign(orbit.OrbitalPlaneNormal.y) * Math.Abs(orbit.MeanMotion);
+            var normalY = orbit.OrbitalPlaneNormal.y;
+            var meanMotion = orbit.MeanMotion;
+            if (!IsFinite(normalY) || !IsFinite(meanMotion))
+                return double.NaN;
+
+            return Math.Sign(normalY) * Math.Abs(meanMotion);
         }
 
         /// <summary>
@@ -482,7 +516,7 @@ namespace Flight
                 return false;
 
             var toStar = star.SolarPosition - planet.SolarPosition;
-            if (toStar.sqrMagnitude <= 0.0)
+            if (!IsFinite(toStar.sqrMagnitude) || toStar.sqrMagnitude <= 0.0)
                 return false;
 
             // The solar frame and the planet-centered inertial frame share their orientation, so
@@ -490,7 +524,7 @@ namespace Flight
             // which is what folds the body's current rotation angle into the longitude.
             var surfaceDirection = planet.PlanetVectorToSurfaceVector(toStar).normalized;
             planet.GetSurfaceCoordinates(surfaceDirection, out _, out longitude);
-            return true;
+            return IsFinite(longitude);
         }
 
         private static bool TryGetSolarTimeOfDay(
@@ -505,13 +539,16 @@ namespace Flight
             // rate's sign makes solar time advance regardless of the direction of rotation.
             timeOfDay =
                 Wrap01(0.5 + Math.Sign(synodicRate) * subsolarLongitude / TwoPi) * dayLength;
-            return true;
+            return IsFinite(timeOfDay);
         }
 
         private static double Wrap(double value, double length) =>
             value - Math.Floor(value / length) * length;
 
-        private static double GetEpochTimeOfDay(
+        private static bool IsFinite(double value) =>
+            !double.IsNaN(value) && !double.IsInfinity(value);
+
+        internal static double GetEpochTimeOfDay(
             double time, double timeOfDay, double dayLength) =>
             Wrap(timeOfDay - time, dayLength);
 
