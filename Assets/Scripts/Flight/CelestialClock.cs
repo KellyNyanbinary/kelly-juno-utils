@@ -1,0 +1,566 @@
+using System;
+using System.Globalization;
+using Assets.Scripts;
+using ModApi;
+using ModApi.Flight.Sim;
+
+namespace Flight
+{
+    /// <summary>
+    /// Formats universe time as calendar dates, or elapsed time as day counts, using the solar day
+    /// and year of a celestial body or Earth.
+    /// </summary>
+    /// <remarks>
+    /// A solar day runs from one local noon to the next. Its length comes from the synodic rate,
+    /// which combines body rotation with motion around the sun: <c>2 * pi / |synodic rate|</c>.
+    /// Moons use their parent planet's heliocentric rate and orbital period.
+    /// <para>
+    /// Universe calendar days turn over at the local planet's midnight and can be numbered from
+    /// 1 or 0. Elapsed clocks count complete solar days from <c>000:00:00:00</c>.
+    /// </para>
+    /// </remarks>
+    internal static class CelestialClock
+    {
+        /// <summary>
+        /// The name of the Earth calendar line. It is available even when the system has no Earth.
+        /// </summary>
+        public const string EarthName = "Earth";
+
+        /// <summary>
+        /// The mean length of an Earth year in Earth days, that is, the Gregorian calendar's.
+        /// </summary>
+        public const double EarthDaysPerYear = 365.2425;
+
+        /// <summary>
+        /// The length of an Earth day in hours.
+        /// </summary>
+        public const double EarthHoursPerDay = 24.0;
+
+        /// <summary>
+        /// The length of an Earth day in seconds.
+        /// </summary>
+        public const double EarthSecondsPerDay = EarthHoursPerDay * 3600.0;
+
+        private const double TwoPi = 2.0 * Math.PI;
+
+        /// <summary>
+        /// Ignores insignificant model and floating-point differences when comparing the loaded
+        /// Earth's day and year lengths with real Earth. A 0.01% tolerance is about 9 seconds per
+        /// day or 53 minutes per Gregorian year, below which the difference is not useful to display.
+        /// </summary>
+        private const double EarthComparisonTolerance = 0.0001;
+
+        /// <summary>
+        /// The smallest loaded-Earth epoch phase difference worth displaying, matching the clock's
+        /// one-second precision.
+        /// </summary>
+        private const double EarthEpochPhaseTolerance = 1.0;
+
+        /// <summary>
+        /// The smallest synodic angular rate (rad/s) that still yields a meaningful clock. Below
+        /// this the body is effectively locked to the sun, and its day is longer than the solar
+        /// system is old, so no time of day is reported.
+        /// </summary>
+        private const double MinSynodicRate = 1e-9;
+
+        /// <summary>
+        /// The loaded Earth's physical clock data and its material differences from real Earth.
+        /// </summary>
+        public readonly struct EarthClockData
+        {
+            internal EarthClockData(
+                double solarDayLength,
+                double daysPerYear,
+                bool dayLengthDiffers,
+                bool yearLengthDiffers,
+                bool epochDiffersFromMidnight,
+                string epochSolarTime)
+            {
+                SolarDayLength = solarDayLength;
+                DaysPerYear = daysPerYear;
+                DayLengthDiffers = dayLengthDiffers;
+                YearLengthDiffers = yearLengthDiffers;
+                EpochDiffersFromMidnight = epochDiffersFromMidnight;
+                EpochSolarTime = epochSolarTime;
+            }
+
+            public double SolarDayLength { get; }
+            public double DaysPerYear { get; }
+            public bool DayLengthDiffers { get; }
+            private bool YearLengthDiffers { get; }
+            public bool EpochDiffersFromMidnight { get; }
+            public string EpochSolarTime { get; }
+
+            public bool DiffersFromRealEarth =>
+                DayLengthDiffers || YearLengthDiffers || EpochDiffersFromMidnight;
+        }
+
+        private readonly struct CalendarProperties
+        {
+            public CalendarProperties(double dayLength, double yearLength)
+            {
+                DayLength = dayLength;
+                YearLength = yearLength;
+            }
+
+            public double DayLength { get; }
+            public double YearLength { get; }
+            public double DaysPerYear => YearLength / DayLength;
+        }
+
+        /// <summary>
+        /// Gets the home planet, or <c>null</c> if it cannot be identified.
+        /// </summary>
+        /// <remarks>
+        /// ModApi exposes no home-planet accessor, so the planet is looked up by name, falling back
+        /// to the selected launch location's planet for planetary systems without a stock home.
+        /// </remarks>
+        /// <param name="reference">Any node in the solar system to search from.</param>
+        /// <returns>The home planet node, or <c>null</c>.</returns>
+        public static IPlanetNode GetHomePlanet(IPlanetNode reference)
+        {
+            var star = GetStar(reference);
+            if (star is null)
+                return null;
+
+            var homePlanet = star.FindPlanet(Constants.HomePlanetName);
+            if (homePlanet is not null)
+                return homePlanet;
+
+            var launchPlanetName = Game.Instance.GameState?.SelectedLaunchLocation?.PlanetName;
+            return string.IsNullOrEmpty(launchPlanetName) ? null : star.FindPlanet(launchPlanetName);
+        }
+
+        /// <summary>
+        /// Gets Earth from the current planetary system.
+        /// </summary>
+        /// <param name="reference">Any node in the planetary system.</param>
+        /// <returns>Earth, or <c>null</c> if the system has no Earth.</returns>
+        public static IPlanetNode GetEarth(IPlanetNode reference) => GetStar(reference)?.FindPlanet(EarthName);
+
+        /// <summary>
+        /// Gets a body's display name.
+        /// </summary>
+        /// <param name="planet">The celestial body.</param>
+        /// <returns>The name, or <c>null</c> if the body is <c>null</c>.</returns>
+        public static string GetName(IPlanetNode planet) => planet?.PlanetData?.Name ?? planet?.Name;
+
+        /// <summary>
+        /// Gets whether a body is Earth, whose date is always shown on its own line.
+        /// </summary>
+        /// <param name="planet">The celestial body.</param>
+        /// <returns><c>true</c> if the body is Earth; otherwise, <c>false</c>.</returns>
+        public static bool IsEarth(IPlanetNode planet) =>
+            string.Equals(GetName(planet), EarthName, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Formats universe time as an Earth date and time of day, <c>YYYY-MM-DD HH:MM:SS</c>.
+        /// </summary>
+        /// <param name="time">The universe time in seconds.</param>
+        /// <param name="startAtOne">Whether year, month, and day numbering begins at 1.</param>
+        /// <returns>The formatted date.</returns>
+        public static string FormatEarthDate(double time, bool startAtOne)
+        {
+            var seconds = Math.Min(Math.Max(time, 0.0), (DateTime.MaxValue - DateTime.MinValue).TotalSeconds);
+            var date = DateTime.MinValue.AddSeconds(seconds);
+            if (startAtOne)
+                return date.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+
+            // Universe time starts on the calendar's own first day, so taking one off each field
+            // leaves the whole years, months, and days that have passed.
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:0000}-{1:00}-{2:00} {3:00}:{4:00}:{5:00}",
+                date.Year - 1,
+                date.Month - 1,
+                date.Day - 1,
+                date.Hour,
+                date.Minute,
+                date.Second);
+        }
+
+        /// <summary>
+        /// Formats elapsed time as a count of whole days followed by the time within the current day.
+        /// </summary>
+        /// <param name="time">The time elapsed in seconds.</param>
+        /// <param name="dayLength">The length of a day in seconds.</param>
+        /// <returns>The formatted elapsed time, <c>DDD:HH:MM:SS</c>.</returns>
+        public static string FormatElapsedDays(double time, double dayLength)
+        {
+            var elapsedTime = Math.Max(time, 0.0);
+            var day = (long)(elapsedTime / dayLength);
+            return FormatElapsedDayCount(day, elapsedTime - day * dayLength);
+        }
+
+        /// <summary>
+        /// Tries to format universe time as a date and solar time of day on a body's own calendar,
+        /// <c>YYYY-DD HH:MM:SS</c>. Body calendars omit months, so the day field is the day of the
+        /// year. Hours use stock one-hour units and may run past 23.
+        /// </summary>
+        /// <param name="planet">The celestial body.</param>
+        /// <param name="time">The universe time in seconds.</param>
+        /// <param name="startAtOne">Whether year and day numbering begins at 1.</param>
+        /// <param name="date">The formatted date.</param>
+        /// <param name="calendar">The formatted length of the body's year and day.</param>
+        /// <returns><c>true</c> if a date could be computed; otherwise, <c>false</c>.</returns>
+        public static bool TryFormatCalendarDate(
+            IPlanetNode planet,
+            double time,
+            bool startAtOne,
+            out string date,
+            out string calendar)
+        {
+            date = null;
+            calendar = null;
+
+            if (!TryGetCalendarProperties(planet, out var properties) ||
+                !TryGetSolarTimeOfDay(planet, properties.DayLength, out var timeOfDay))
+                return false;
+
+            calendar = FormatBodyCalendar(planet, properties);
+
+            var elapsedDays =
+                CountElapsedSolarDays(time, timeOfDay, properties.DayLength);
+            SplitCalendarDate(
+                elapsedDays, properties.DaysPerYear, out var year, out var day);
+
+            var origin = startAtOne ? 1L : 0L;
+            date = string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:0000}-{1:00} {2}",
+                year + origin,
+                day + origin,
+                FormatTimeOfDay(timeOfDay));
+            return true;
+        }
+
+        /// <summary>
+        /// Tries to format elapsed time in a body's solar days as <c>DDD:HH:MM:SS</c>.
+        /// </summary>
+        /// <param name="planet">The celestial body.</param>
+        /// <param name="time">The time elapsed in seconds.</param>
+        /// <param name="elapsed">The formatted elapsed time.</param>
+        /// <param name="calendar">The formatted length of the body's year and day.</param>
+        /// <returns><c>true</c> if the body's solar day could be computed; otherwise, <c>false</c>.</returns>
+        public static bool TryFormatElapsedDays(
+            IPlanetNode planet, double time, out string elapsed, out string calendar)
+        {
+            elapsed = null;
+            calendar = null;
+            if (!TryGetCalendarProperties(planet, out var properties))
+                return false;
+
+            elapsed = FormatElapsedDays(time, properties.DayLength);
+            calendar = FormatBodyCalendar(planet, properties);
+            return true;
+        }
+
+        /// <summary>
+        /// Gets the loaded Earth's physical clock data and its differences from real Earth.
+        /// </summary>
+        /// <param name="earth">The loaded Earth.</param>
+        /// <param name="time">The current universe time in seconds.</param>
+        /// <param name="data">The physical clock data.</param>
+        /// <returns><c>true</c> if the loaded Earth's day and year could be computed.</returns>
+        public static bool TryGetEarthClockData(
+            IPlanetNode earth, double time, out EarthClockData data)
+        {
+            data = default;
+            if (!TryGetCalendarProperties(earth, out var properties))
+                return false;
+
+            var epochDiffers = false;
+            string epochSolarTime = null;
+            if (TryGetSolarTimeOfDay(earth, properties.DayLength, out var timeOfDay))
+            {
+                // Solar time advances one second per universe second, so subtracting the current
+                // time recovers the loaded Earth's solar time at the universe epoch.
+                var epochTimeOfDay =
+                    GetEpochTimeOfDay(time, timeOfDay, properties.DayLength);
+                epochDiffers =
+                    EarthEpochDiffersFromMidnight(epochTimeOfDay, properties.DayLength);
+                epochSolarTime = FormatTimeOfDay(epochTimeOfDay);
+            }
+
+            data = new EarthClockData(
+                properties.DayLength,
+                properties.DaysPerYear,
+                DiffersByEarthTolerance(properties.DayLength, EarthSecondsPerDay),
+                DiffersByEarthTolerance(properties.DaysPerYear, EarthDaysPerYear),
+                epochDiffers,
+                epochSolarTime);
+            return true;
+        }
+
+        /// <summary>
+        /// Formats the length of a body's year and day for the tooltip.
+        /// </summary>
+        /// <param name="daysPerYear">The number of days in the year, if it has one.</param>
+        /// <param name="hoursPerDay">The number of stock hours in the day.</param>
+        /// <param name="earthDaysPerYear">The number of Earth days in the year, if it should be shown.</param>
+        /// <returns>The formatted lengths.</returns>
+        public static string FormatCalendar(
+            double daysPerYear, double hoursPerDay, double? earthDaysPerYear = null) =>
+            HasYear(daysPerYear)
+                ? FormatYearAndDay(daysPerYear, hoursPerDay, earthDaysPerYear)
+                : string.Format(CultureInfo.InvariantCulture, "  Day: {0:N2} hours", hoursPerDay);
+
+        private static string FormatYearAndDay(
+            double daysPerYear, double hoursPerDay, double? earthDaysPerYear)
+        {
+            var year = earthDaysPerYear.HasValue
+                ? string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0:N2} days ({1:N2} 24-hour Earth days)",
+                    daysPerYear,
+                    earthDaysPerYear.Value)
+                : string.Format(CultureInfo.InvariantCulture, "{0:N2} days", daysPerYear);
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "  Year: {0}\n  Day: {1:N2} hours",
+                year,
+                hoursPerDay);
+        }
+
+        private static string FormatElapsedDayCount(long day, double timeOfDay) =>
+            string.Format(CultureInfo.InvariantCulture, "{0:000}:{1}", day, FormatTimeOfDay(timeOfDay));
+
+        private static string FormatBodyCalendar(
+            IPlanetNode planet, CalendarProperties properties)
+        {
+            var earthDaysPerYear = IsEarth(planet)
+                ? null
+                : (double?)(properties.YearLength / EarthSecondsPerDay);
+            return FormatCalendar(
+                properties.DaysPerYear,
+                properties.DayLength / 3600.0,
+                earthDaysPerYear);
+        }
+
+        private static bool TryGetCalendarProperties(
+            IPlanetNode planet, out CalendarProperties properties)
+        {
+            properties = default;
+            if (!TryGetDayLength(GetSynodicRate(planet), out var dayLength))
+                return false;
+
+            var yearLength = GetYearLength(planet);
+            if (!IsFinite(yearLength))
+                return false;
+
+            properties = new CalendarProperties(dayLength, yearLength);
+            return true;
+        }
+
+        internal static bool TryGetDayLength(
+            double synodicRate, out double dayLength)
+        {
+            dayLength = 0.0;
+            if (!IsFinite(synodicRate) || Math.Abs(synodicRate) < MinSynodicRate)
+                return false;
+
+            dayLength = TwoPi / Math.Abs(synodicRate);
+            return dayLength > 0.0 && IsFinite(dayLength);
+        }
+
+        /// <summary>
+        /// Gets whether a body's orbit yields a year that can be counted in its own days.
+        /// </summary>
+        /// <param name="daysPerYear">The number of days in the year.</param>
+        /// <returns><c>true</c> if the body has a year; otherwise, <c>false</c>.</returns>
+        private static bool HasYear(double daysPerYear) => daysPerYear >= 1.0 && !double.IsInfinity(daysPerYear);
+
+        internal static bool DiffersByEarthTolerance(double actual, double expected) =>
+            Math.Abs(actual - expected) > Math.Abs(expected) * EarthComparisonTolerance;
+
+        internal static bool EarthEpochDiffersFromMidnight(
+            double epochTimeOfDay, double dayLength)
+        {
+            var normalizedTime = Wrap(epochTimeOfDay, dayLength);
+            return Math.Min(normalizedTime, dayLength - normalizedTime) >
+                EarthEpochPhaseTolerance;
+        }
+
+        internal static long CountElapsedSolarDays(
+            double time, double timeOfDay, double dayLength)
+        {
+            var epochTimeOfDay = GetEpochTimeOfDay(time, timeOfDay, dayLength);
+            return Math.Max(
+                (long)Math.Floor((time + epochTimeOfDay) / dayLength),
+                0L);
+        }
+
+        internal static void SplitCalendarDate(
+            long elapsedDays, double daysPerYear, out long year, out long day)
+        {
+            year = 0L;
+            day = elapsedDays;
+            if (!HasYear(daysPerYear))
+                return;
+
+            // A year rarely holds a whole number of days, so a year starts on the first day that
+            // begins after the orbit does, which leaves years one day longer than others now and then.
+            year = (long)(elapsedDays / daysPerYear);
+            day -= (long)Math.Ceiling(year * daysPerYear);
+        }
+
+        /// <summary>
+        /// Gets the star at the root of the solar system the body belongs to.
+        /// </summary>
+        /// <param name="planet">The celestial body.</param>
+        /// <returns>The star node, or <c>null</c> if the body is <c>null</c>.</returns>
+        private static IPlanetNode GetStar(IPlanetNode planet)
+        {
+            var star = planet;
+            while (star?.Parent is not null)
+                star = star.Parent;
+
+            return star;
+        }
+
+        /// <summary>
+        /// Gets the rate (rad/s) at which the subsolar longitude drifts, that is, how fast the sun
+        /// travels across the body's sky.
+        /// </summary>
+        /// <param name="planet">The celestial body.</param>
+        /// <returns>The synodic angular rate in rad/s, or zero if it cannot be determined.</returns>
+        private static double GetSynodicRate(IPlanetNode planet)
+        {
+            var planetData = planet?.PlanetData;
+            if (planetData is null)
+                return 0.0;
+
+            return planetData.AngularVelocity + GetHeliocentricRate(planet);
+        }
+
+        /// <summary>
+        /// Formats a time of day as <c>HH:MM:SS</c>. Long solar days can run past hour 23.
+        /// </summary>
+        /// <param name="timeOfDay">The time of day in seconds.</param>
+        /// <returns>The formatted time of day.</returns>
+        private static string FormatTimeOfDay(double timeOfDay)
+        {
+            var totalSeconds = (long)timeOfDay;
+            var hours = totalSeconds / 3600L;
+            var minutes = totalSeconds / 60L % 60L;
+            var seconds = totalSeconds % 60L;
+            return string.Format(CultureInfo.InvariantCulture, "{0:00}:{1:00}:{2:00}", hours, minutes, seconds);
+        }
+
+        /// <summary>
+        /// Gets the length (seconds) of the body's year, that is, of its orbit around the star.
+        /// </summary>
+        /// <param name="planet">The celestial body.</param>
+        /// <returns>The year length in seconds, or zero if it cannot be determined.</returns>
+        private static double GetYearLength(IPlanetNode planet)
+        {
+            var orbit = GetHeliocentricOrbit(planet);
+            return orbit is null ? 0.0 : Math.Abs(orbit.Period);
+        }
+
+        /// <summary>
+        /// Gets the angular rate (rad/s) at which the body's motion around the star carries the
+        /// subsolar longitude.
+        /// </summary>
+        /// <param name="planet">The celestial body.</param>
+        /// <returns>The heliocentric angular rate in rad/s, or zero for the star itself.</returns>
+        private static double GetHeliocentricRate(IPlanetNode planet)
+        {
+            var orbit = GetHeliocentricOrbit(planet);
+            if (orbit is null)
+                return 0.0;
+
+            // Planet rotation is always around game-space Y. The orbit normal supplies its actual
+            // direction around that axis; MeanMotion supplies the full cycle rate. IsPrograde is
+            // only imported metadata and can disagree with the generated state vectors.
+            var normalY = orbit.OrbitalPlaneNormal.y;
+            var meanMotion = orbit.MeanMotion;
+            if (!IsFinite(normalY) || !IsFinite(meanMotion))
+                return double.NaN;
+
+            return Math.Sign(normalY) * Math.Abs(meanMotion);
+        }
+
+        /// <summary>
+        /// Gets the orbit the body follows around the star.
+        /// </summary>
+        /// <remarks>
+        /// For a moon this is its parent planet's orbit, because orbiting the planet leaves the
+        /// moon's mean heliocentric longitude, and so its year, unchanged.
+        /// </remarks>
+        /// <param name="planet">The celestial body.</param>
+        /// <returns>The orbit, or <c>null</c> for the star itself.</returns>
+        private static IOrbit GetHeliocentricOrbit(IPlanetNode planet)
+        {
+            // Walk up to the outermost ancestor that still orbits the star directly.
+            var node = planet;
+            while (node?.Parent?.Parent is not null)
+                node = node.Parent;
+
+            var orbit = node?.Orbit;
+            return node?.Parent is null || orbit is null || !orbit.IsValid ? null : orbit;
+        }
+
+        /// <summary>
+        /// Tries to get the longitude (radians) of the point on the body directly beneath the sun.
+        /// </summary>
+        /// <param name="planet">The celestial body.</param>
+        /// <param name="longitude">The subsolar longitude in radians.</param>
+        /// <returns><c>true</c> if the longitude could be computed; otherwise, <c>false</c>.</returns>
+        private static bool TryGetSubsolarLongitude(IPlanetNode planet, out double longitude)
+        {
+            longitude = 0.0;
+
+            var star = GetStar(planet);
+            if (star is null || ReferenceEquals(star, planet))
+                return false;
+
+            var toStar = star.SolarPosition - planet.SolarPosition;
+            if (!IsFinite(toStar.sqrMagnitude) || toStar.sqrMagnitude <= 0.0)
+                return false;
+
+            // The solar frame and the planet-centered inertial frame share their orientation, so
+            // the direction to the star only has to be rotated into the body's rotating frame,
+            // which is what folds the body's current rotation angle into the longitude.
+            var surfaceDirection = planet.PlanetVectorToSurfaceVector(toStar).normalized;
+            planet.GetSurfaceCoordinates(surfaceDirection, out _, out longitude);
+            return IsFinite(longitude);
+        }
+
+        private static bool TryGetSolarTimeOfDay(
+            IPlanetNode planet, double dayLength, out double timeOfDay)
+        {
+            timeOfDay = 0.0;
+            if (!TryGetSubsolarLongitude(planet, out var subsolarLongitude))
+                return false;
+
+            var synodicRate = GetSynodicRate(planet);
+            // The half-day offset makes subsolar longitude 0 noon. Multiplying longitude by the
+            // rate's sign makes solar time advance regardless of the direction of rotation.
+            timeOfDay =
+                Wrap01(0.5 + Math.Sign(synodicRate) * subsolarLongitude / TwoPi) * dayLength;
+            return IsFinite(timeOfDay);
+        }
+
+        private static double Wrap(double value, double length) =>
+            value - Math.Floor(value / length) * length;
+
+        private static bool IsFinite(double value) =>
+            !double.IsNaN(value) && !double.IsInfinity(value);
+
+        internal static double GetEpochTimeOfDay(
+            double time, double timeOfDay, double dayLength) =>
+            Wrap(timeOfDay - time, dayLength);
+
+        /// <summary>
+        /// Wraps a fraction into the range [0, 1).
+        /// </summary>
+        /// <param name="value">The value to wrap.</param>
+        /// <returns>The wrapped value.</returns>
+        private static double Wrap01(double value)
+        {
+            var wrapped = value - Math.Floor(value);
+            return wrapped is >= 1.0 or < 0.0 ? 0.0 : wrapped;
+        }
+    }
+}

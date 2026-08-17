@@ -1,0 +1,12 @@
+﻿{
+  "name": "Kelly Utils.Tests",
+  "references": [
+    "Kelly Utils"
+  ],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ]
+}
