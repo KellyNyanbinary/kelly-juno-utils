@@ -15,8 +15,8 @@ namespace Flight
     /// which combines body rotation with motion around the sun: <c>2 * pi / |synodic rate|</c>.
     /// Moons use their parent planet's heliocentric rate and orbital period.
     /// <para>
-    /// Universe calendar days turn over at local midnight and can be numbered from 1 or 0. Elapsed
-    /// clocks count complete solar days from <c>000:00:00:00</c>.
+    /// Universe calendar days turn over at the local planet's midnight and can be numbered from
+    /// 1 or 0. Elapsed clocks count complete solar days from <c>000:00:00:00</c>.
     /// </para>
     /// </remarks>
     internal static class CelestialClock
@@ -377,7 +377,7 @@ namespace Flight
             double epochTimeOfDay, double dayLength)
         {
             var normalizedTime = Wrap(epochTimeOfDay, dayLength);
-            return Math.Min(normalizedTime, dayLength - normalizedTime) >=
+            return Math.Min(normalizedTime, dayLength - normalizedTime) >
                 EarthEpochPhaseTolerance;
         }
 
