@@ -27,6 +27,11 @@ namespace Flight
         public const string EarthName = "Earth";
 
         /// <summary>
+        /// The name of the fixed Erid reference calendar line.
+        /// </summary>
+        public const string EridReferenceName = "Erid reference";
+
+        /// <summary>
         /// The mean length of an Earth year in Earth days, that is, the Gregorian calendar's.
         /// </summary>
         public const double EarthDaysPerYear = 365.2425;
@@ -37,9 +42,30 @@ namespace Flight
         public const double EarthHoursPerDay = 24.0;
 
         /// <summary>
+        /// The length of an Erid reference day in stock hours.
+        /// </summary>
+        public const double EridHoursPerDay = 5.1104;
+
+        /// <summary>
+        /// The length of an Erid reference year in 24-hour Earth days.
+        /// </summary>
+        public const double EridEarthDaysPerYear = 42.3328;
+
+        /// <summary>
         /// The length of an Earth day in seconds.
         /// </summary>
         public const double EarthSecondsPerDay = EarthHoursPerDay * 3600.0;
+
+        /// <summary>
+        /// The length of an Erid reference day in seconds.
+        /// </summary>
+        public const double EridSecondsPerDay = EridHoursPerDay * 3600.0;
+
+        /// <summary>
+        /// The length of an Erid reference year in Erid days.
+        /// </summary>
+        public const double EridDaysPerYear =
+            EridEarthDaysPerYear * EarthSecondsPerDay / EridSecondsPerDay;
 
         private const double TwoPi = 2.0 * Math.PI;
 
@@ -193,6 +219,16 @@ namespace Flight
         }
 
         /// <summary>
+        /// Formats time on the fixed Erid reference calendar, whose epoch starts at midnight.
+        /// </summary>
+        public static string FormatEridDate(double time, bool startAtOne) =>
+            FormatReferenceDate(
+                time,
+                EridSecondsPerDay,
+                EridDaysPerYear,
+                startAtOne);
+
+        /// <summary>
         /// Tries to format universe time as a date and solar time of day on a body's own calendar,
         /// <c>YYYY-DDD HH:MM:SS</c>. Body calendars omit months, so the day field is the day of the
         /// year and expands to fit the longest possible year. Hours use stock one-hour units and
@@ -225,13 +261,13 @@ namespace Flight
             SplitCalendarDate(
                 elapsedDays, properties.DaysPerYear, out var year, out var day);
 
-            var origin = startAtOne ? 1L : 0L;
-            date = string.Format(
-                CultureInfo.InvariantCulture,
-                "{0:0000}-{1} {2}",
-                year + origin,
-                FormatDayOfYear(day + origin, properties.DaysPerYear),
-                FormatTimeOfDay(timeOfDay, properties.DayLength));
+            date = FormatCalendarDate(
+                year,
+                day,
+                timeOfDay,
+                properties.DayLength,
+                properties.DaysPerYear,
+                startAtOne);
             return true;
         }
 
@@ -337,6 +373,42 @@ namespace Flight
             var dayDigits =
                 maximumDays.ToString(CultureInfo.InvariantCulture).Length;
             return day.ToString("D" + dayDigits, CultureInfo.InvariantCulture);
+        }
+
+        private static string FormatReferenceDate(
+            double time,
+            double dayLength,
+            double daysPerYear,
+            bool startAtOne)
+        {
+            var elapsedTime = Math.Max(time, 0.0);
+            var elapsedDays = (long)(elapsedTime / dayLength);
+            SplitCalendarDate(
+                elapsedDays, daysPerYear, out var year, out var day);
+            return FormatCalendarDate(
+                year,
+                day,
+                elapsedTime - elapsedDays * dayLength,
+                dayLength,
+                daysPerYear,
+                startAtOne);
+        }
+
+        private static string FormatCalendarDate(
+            long year,
+            long day,
+            double timeOfDay,
+            double dayLength,
+            double daysPerYear,
+            bool startAtOne)
+        {
+            var origin = startAtOne ? 1L : 0L;
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:0000}-{1} {2}",
+                year + origin,
+                FormatDayOfYear(day + origin, daysPerYear),
+                FormatTimeOfDay(timeOfDay, dayLength));
         }
 
         private static string FormatBodyCalendar(

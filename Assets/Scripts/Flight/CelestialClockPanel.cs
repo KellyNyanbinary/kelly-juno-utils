@@ -120,6 +120,7 @@ namespace Flight
         private long _second = long.MinValue;
         private bool _datesStartAtOne;
         private bool _showInSystemEarthClock;
+        private bool _showEridReferenceClock;
         private ClockOrigin _clockOrigin;
         private ICraftNode _activeCraft;
         private double _sessionStartTime;
@@ -272,17 +273,24 @@ namespace Flight
             var second = (long)time;
             var datesStartAtOne = ModSettings.Instance.DatesStartAtOne.Value;
             var showInSystemEarthClock = ModSettings.Instance.ShowInSystemEarthClock.Value;
+            var showEridReferenceClock = ModSettings.Instance.ShowEridReferenceClock.Value;
             if (second == _second &&
                 datesStartAtOne == _datesStartAtOne &&
-                showInSystemEarthClock == _showInSystemEarthClock)
+                showInSystemEarthClock == _showInSystemEarthClock &&
+                showEridReferenceClock == _showEridReferenceClock)
                 return;
 
             _second = second;
             _datesStartAtOne = datesStartAtOne;
             _showInSystemEarthClock = showInSystemEarthClock;
+            _showEridReferenceClock = showEridReferenceClock;
             var context = new ClockContext(
                 time, universeTime, datesStartAtOne, _clockOrigin);
-            Refresh(craft?.Parent, context, showInSystemEarthClock);
+            Refresh(
+                craft?.Parent,
+                context,
+                showInSystemEarthClock,
+                showEridReferenceClock);
         }
 
         private void CycleClockOrigin()
@@ -333,10 +341,12 @@ namespace Flight
         /// <param name="localBody">The celestial body that the craft is at.</param>
         /// <param name="context">The selected clock mode and its time values.</param>
         /// <param name="showInSystemEarthClock">Whether a disagreeing physical Earth clock is shown.</param>
+        /// <param name="showEridReferenceClock">Whether the fixed Erid reference clock is shown.</param>
         private void Refresh(
             IPlanetNode localBody,
             ClockContext context,
-            bool showInSystemEarthClock)
+            bool showInSystemEarthClock,
+            bool showEridReferenceClock)
         {
             var homePlanet = CelestialClock.GetHomePlanet(localBody);
             var earth = CelestialClock.GetEarth(localBody);
@@ -344,13 +354,16 @@ namespace Flight
             var tooltip = new StringBuilder(
                 BuildTooltip(context.StartAtOne, context.Origin));
             AppendEarth(columns, tooltip, earth, context, showInSystemEarthClock);
+            if (showEridReferenceClock)
+                AppendEridReference(columns, tooltip, context);
 
             // Earth's calendar is always shown, so a body that keeps it needs no line of its own.
             if (!CelestialClock.IsEarth(homePlanet))
                 AppendBody(columns, tooltip, homePlanet, context);
 
             // The local body only adds a line of its own once the craft has left the home planet.
-            if (!ReferenceEquals(localBody, homePlanet) && !CelestialClock.IsEarth(localBody))
+            if (!ReferenceEquals(localBody, homePlanet) &&
+                !CelestialClock.IsEarth(localBody))
                 AppendBody(columns, tooltip, localBody, context);
 
             SetRow(columns, tooltip.ToString());
@@ -545,6 +558,29 @@ namespace Flight
                     earth, context, earthData, out var inSystemTime))
                 AppendDisplayLine(
                     columns, "In-system Earth", context.Prefix, inSystemTime);
+        }
+
+        private static void AppendEridReference(
+            ClockColumns columns,
+            StringBuilder tooltip,
+            ClockContext context)
+        {
+            var value = context.IsUniverseDate
+                ? CelestialClock.FormatEridDate(context.Time, context.StartAtOne)
+                : CelestialClock.FormatElapsedDays(
+                    context.Time, CelestialClock.EridSecondsPerDay);
+            var calendar = "  Calendar: fixed reference\n" +
+                CelestialClock.FormatCalendar(
+                    CelestialClock.EridDaysPerYear,
+                    CelestialClock.EridHoursPerDay,
+                    CelestialClock.EridEarthDaysPerYear);
+            AppendLine(
+                columns,
+                tooltip,
+                CelestialClock.EridReferenceName,
+                context.Prefix,
+                value,
+                calendar);
         }
 
         private static bool TryFormatInSystemEarthClock(

@@ -16,6 +16,38 @@ namespace Tests
                 CelestialClock.FormatEarthDate(seconds, startAtOne),
                 Is.EqualTo(expected));
 
+        [TestCase(0.0, false, "0000-000 0:00:00")]
+        [TestCase(0.0, true, "0001-001 0:00:00")]
+        [TestCase(22059.0, true, "0001-002 1:01:01")]
+        public void FormatEridDate_UsesFixedReferenceCalendar(
+            double seconds, bool startAtOne, string expected) =>
+            Assert.That(
+                CelestialClock.FormatEridDate(seconds, startAtOne),
+                Is.EqualTo(expected));
+
+        [Test]
+        public void FormatEridDate_RollsOverAfterFirstFractionalYear()
+        {
+            var rolloverDay = (long)Math.Ceiling(CelestialClock.EridDaysPerYear);
+            var lastDay = CelestialClock.FormatDayOfYear(
+                rolloverDay,
+                CelestialClock.EridDaysPerYear);
+            var firstDay = CelestialClock.FormatDayOfYear(
+                1L,
+                CelestialClock.EridDaysPerYear);
+
+            Assert.That(
+                CelestialClock.FormatEridDate(
+                    (rolloverDay - 1L) * CelestialClock.EridSecondsPerDay,
+                    true),
+                Is.EqualTo($"0001-{lastDay} 0:00:00"));
+            Assert.That(
+                CelestialClock.FormatEridDate(
+                    rolloverDay * CelestialClock.EridSecondsPerDay,
+                    true),
+                Is.EqualTo($"0002-{firstDay} 0:00:00"));
+        }
+
         [TestCase(0.0, 86400.0, "000:00:00:00")]
         [TestCase(-1.0, 86400.0, "000:00:00:00")]
         [TestCase(90061.0, 86400.0, "001:01:01:01")]

@@ -74,6 +74,11 @@ public class ModSettings : SettingsCategory<ModSettings>
     public BoolSetting ShowInSystemEarthClock { get; private set; }
 
     /// <summary>
+    /// Whether the fixed Erid (40 Eridani A b) reference calendar is shown alongside Gregorian Earth.
+    /// </summary>
+    public BoolSetting ShowEridReferenceClock { get; private set; }
+
+    /// <summary>
     /// Initializes the settings in the category.
     /// </summary>
     protected override void InitializeSettings()
@@ -107,6 +112,11 @@ public class ModSettings : SettingsCategory<ModSettings>
         ShowInSystemEarthClock = CreateBool("Show In-System Earth Clock")
             .SetDescription(
                 "A planetary system's Earth can have different day and year lengths or a different initial rotation from real Earth. Shows its universe clock for any difference, and its T+ or S+ clock for a different day length. The clock tooltip always lists disagreeing in-system Earth data.")
+            .SetDefault(false);
+
+        ShowEridReferenceClock = CreateBool("Show Erid Reference Clock")
+            .SetDescription(
+                "Shows a fixed Erid (40 Eridani A b) reference calendar alongside Gregorian Earth. An Erid day is 5.1104 hours and an Erid year is 42.3328 24-hour-long Earth days.")
             .SetDefault(false);
     }
 }
