@@ -20,6 +20,9 @@ namespace Tests
         [TestCase(-1.0, 86400.0, "000:00:00:00")]
         [TestCase(90061.0, 86400.0, "001:01:01:01")]
         [TestCase(54001.0, 50400.0, "001:01:00:01")]
+        [TestCase(3600.0, 360000.0, "000:01:00:00")]
+        [TestCase(3600.0, 361800.0, "000:001:00:00")]
+        [TestCase(360000.0, 361800.0, "000:100:00:00")]
         public void FormatElapsedDays_UsesSpecifiedDayLength(
             double seconds, double dayLength, string expected) =>
             Assert.That(
@@ -102,6 +105,19 @@ namespace Tests
             Assert.That(year, Is.EqualTo(0L));
             Assert.That(day, Is.EqualTo(42L));
         }
+
+        [TestCase(0L, 99.0, "00")]
+        [TestCase(0L, 99.071, "000")]
+        [TestCase(98L, 99.071, "098")]
+        [TestCase(365L, 365.2425, "365")]
+        [TestCase(0L, 999.183, "0000")]
+        [TestCase(998L, 999.183, "0998")]
+        [TestCase(1523L, 2183.264, "1523")]
+        public void FormatDayOfYear_FitsLongestPossibleYear(
+            long day, double daysPerYear, string expected) =>
+            Assert.That(
+                CelestialClock.FormatDayOfYear(day, daysPerYear),
+                Is.EqualTo(expected));
 
         [TestCase(10000.99, false)]
         [TestCase(10001.0, false)]

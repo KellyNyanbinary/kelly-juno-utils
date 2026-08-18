@@ -189,13 +189,14 @@ namespace Flight
         {
             var elapsedTime = Math.Max(time, 0.0);
             var day = (long)(elapsedTime / dayLength);
-            return FormatElapsedDayCount(day, elapsedTime - day * dayLength);
+            return FormatElapsedDayCount(day, elapsedTime - day * dayLength, dayLength);
         }
 
         /// <summary>
         /// Tries to format universe time as a date and solar time of day on a body's own calendar,
-        /// <c>YYYY-DD HH:MM:SS</c>. Body calendars omit months, so the day field is the day of the
-        /// year. Hours use stock one-hour units and may run past 23.
+        /// <c>YYYY-DDD HH:MM:SS</c>. Body calendars omit months, so the day field is the day of the
+        /// year and expands to fit the longest possible year. Hours use stock one-hour units and
+        /// may run past 23.
         /// </summary>
         /// <param name="planet">The celestial body.</param>
         /// <param name="time">The universe time in seconds.</param>
@@ -227,10 +228,10 @@ namespace Flight
             var origin = startAtOne ? 1L : 0L;
             date = string.Format(
                 CultureInfo.InvariantCulture,
-                "{0:0000}-{1:00} {2}",
+                "{0:0000}-{1} {2}",
                 year + origin,
-                day + origin,
-                FormatTimeOfDay(timeOfDay));
+                FormatDayOfYear(day + origin, properties.DaysPerYear),
+                FormatTimeOfDay(timeOfDay, properties.DayLength));
             return true;
         }
 
@@ -279,7 +280,7 @@ namespace Flight
                     GetEpochTimeOfDay(time, timeOfDay, properties.DayLength);
                 epochDiffers =
                     EarthEpochDiffersFromMidnight(epochTimeOfDay, properties.DayLength);
-                epochSolarTime = FormatTimeOfDay(epochTimeOfDay);
+                epochSolarTime = FormatTimeOfDay(epochTimeOfDay, properties.DayLength);
             }
 
             data = new EarthClockData(
@@ -322,8 +323,22 @@ namespace Flight
                 hoursPerDay);
         }
 
-        private static string FormatElapsedDayCount(long day, double timeOfDay) =>
-            string.Format(CultureInfo.InvariantCulture, "{0:000}:{1}", day, FormatTimeOfDay(timeOfDay));
+        private static string FormatElapsedDayCount(
+            long day, double timeOfDay, double dayLength) =>
+            string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:000}:{1}",
+                day,
+                FormatTimeOfDay(timeOfDay, dayLength));
+
+        internal static string FormatDayOfYear(long day, double daysPerYear)
+        {
+            var maximumDays = (long)Math.Ceiling(daysPerYear);
+            var dayDigits = Math.Max(
+                2,
+                maximumDays.ToString(CultureInfo.InvariantCulture).Length);
+            return day.ToString("D" + dayDigits, CultureInfo.InvariantCulture);
+        }
 
         private static string FormatBodyCalendar(
             IPlanetNode planet, CalendarProperties properties)
@@ -434,17 +449,28 @@ namespace Flight
         }
 
         /// <summary>
-        /// Formats a time of day as <c>HH:MM:SS</c>. Long solar days can run past hour 23.
+        /// Formats a time of day as <c>HH:MM:SS</c>. The hour field expands to fit every hour in
+        /// the solar day.
         /// </summary>
         /// <param name="timeOfDay">The time of day in seconds.</param>
+        /// <param name="dayLength">The length of the solar day in seconds.</param>
         /// <returns>The formatted time of day.</returns>
-        private static string FormatTimeOfDay(double timeOfDay)
+        private static string FormatTimeOfDay(double timeOfDay, double dayLength)
         {
             var totalSeconds = (long)timeOfDay;
             var hours = totalSeconds / 3600L;
             var minutes = totalSeconds / 60L % 60L;
             var seconds = totalSeconds % 60L;
-            return string.Format(CultureInfo.InvariantCulture, "{0:00}:{1:00}:{2:00}", hours, minutes, seconds);
+            var largestHour = Math.Max(0L, (long)Math.Ceiling(dayLength / 3600.0) - 1L);
+            var hourDigits = Math.Max(
+                2,
+                largestHour.ToString(CultureInfo.InvariantCulture).Length);
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}:{1:00}:{2:00}",
+                hours.ToString("D" + hourDigits, CultureInfo.InvariantCulture),
+                minutes,
+                seconds);
         }
 
         /// <summary>

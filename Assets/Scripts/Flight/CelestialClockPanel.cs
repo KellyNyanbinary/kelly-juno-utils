@@ -54,9 +54,42 @@ namespace Flight
             public string Prefix => GetClockPrefix(Origin);
         }
 
+        private sealed class ClockColumns
+        {
+            private readonly StringBuilder _labels = new();
+            private readonly StringBuilder _origins = new();
+            private readonly StringBuilder _values = new();
+            private bool _hasRows;
+
+            public string Labels => _labels.ToString();
+            public string Origins => _origins.ToString();
+            public string Values => _values.ToString();
+            public bool HasOrigins { get; private set; }
+
+            public void Append(string label, string origin, string value)
+            {
+                if (_hasRows)
+                {
+                    _labels.Append('\n');
+                    _origins.Append('\n');
+                    _values.Append('\n');
+                }
+
+                _labels.Append(label);
+                _origins.Append(origin);
+                _values.Append(value);
+                HasOrigins |= !string.IsNullOrWhiteSpace(origin);
+                _hasRows = true;
+            }
+        }
+
         private const string RowId = "kelly-utils-clock-row";
-        private const string TextId = "kelly-utils-clock-text";
+        private const string LabelColumnId = "kelly-utils-clock-labels";
+        private const string OriginColumnId = "kelly-utils-clock-origins";
+        private const string ValueColumnId = "kelly-utils-clock-values";
         private const string FontSize = "14";
+        private const int ColumnSpacing = 6;
+        private const int HorizontalPadding = 6;
 
         // The tooltip attribute also makes the row a raycast target. Keep lines short because the
         // tooltip does not wrap automatically.
@@ -76,7 +109,12 @@ namespace Flight
         private const float SearchInterval = 0.5f;
 
         private IXmlElement _row;
-        private TextMeshProUGUI _text;
+        private IXmlElement _labelColumnElement;
+        private IXmlElement _originColumnElement;
+        private IXmlElement _valueColumnElement;
+        private TextMeshProUGUI _labelColumn;
+        private TextMeshProUGUI _originColumn;
+        private TextMeshProUGUI _valueColumn;
 
         private float _nextSearchTime;
         private long _second = long.MinValue;
@@ -133,12 +171,16 @@ namespace Flight
                             ModSettings.Instance.DatesStartAtOne.Value,
                             ClockOrigin.Universe))),
                 new XElement(
-                    ns + "TextMeshPro",
-                    new XAttribute("id", TextId),
-                    new XAttribute("class", "value"),
-                    new XAttribute("fontSize", FontSize),
-                    new XAttribute("alignment", "Center"),
-                    new XAttribute("text", string.Empty)));
+                    ns + "HorizontalLayout",
+                    new XAttribute("spacing", ColumnSpacing),
+                    new XAttribute(
+                        "padding",
+                        $"{HorizontalPadding} {HorizontalPadding} 0 0"),
+                    new XAttribute("childForceExpandWidth", false),
+                    new XAttribute("flexibleWidth", 1),
+                    CreateTextColumn(ns, LabelColumnId, "TopLeft", flexible: true),
+                    CreateTextColumn(ns, OriginColumnId, "TopRight"),
+                    CreateTextColumn(ns, ValueColumnId, "TopRight")));
 
             // Keep the row above the adjustment panel so it stays put when that panel toggles.
             var adjustPanel = container.Elements().FirstOrDefault(e => (string)e.Attribute("id") == "adjust-panel");
@@ -147,6 +189,17 @@ namespace Flight
             else
                 adjustPanel.AddBeforeSelf(row);
         }
+
+        private static XElement CreateTextColumn(
+            XNamespace ns, string id, string alignment, bool flexible = false) =>
+            new(
+                ns + "TextMeshPro",
+                new XAttribute("id", id),
+                new XAttribute("class", "value"),
+                new XAttribute("fontSize", FontSize),
+                new XAttribute("alignment", alignment),
+                new XAttribute("flexibleWidth", flexible ? 1 : 0),
+                new XAttribute("text", string.Empty));
 
         /// <summary>
         /// Looks for the injected row in the flight scene's user interface.
@@ -167,11 +220,28 @@ namespace Flight
             foreach (var layout in ui.GetComponentsInChildren<XmlLayout>(true))
             {
                 var row = layout.GetElementById(RowId);
-                var text = layout.GetElementById<TextMeshProUGUI>(TextId);
-                if (row == null || text == null) continue;
+                var labelElement = layout.GetElementById(LabelColumnId);
+                var originElement = layout.GetElementById(OriginColumnId);
+                var valueElement = layout.GetElementById(ValueColumnId);
+                var labels = layout.GetElementById<TextMeshProUGUI>(LabelColumnId);
+                var origins = layout.GetElementById<TextMeshProUGUI>(OriginColumnId);
+                var values = layout.GetElementById<TextMeshProUGUI>(ValueColumnId);
+                if (row == null ||
+                    labelElement == null ||
+                    originElement == null ||
+                    valueElement == null ||
+                    labels == null ||
+                    origins == null ||
+                    values == null)
+                    continue;
 
                 _row = row;
-                _text = text;
+                _labelColumnElement = labelElement;
+                _originColumnElement = originElement;
+                _valueColumnElement = valueElement;
+                _labelColumn = labels;
+                _originColumn = origins;
+                _valueColumn = values;
                 _row.AddOnClickEvent(CycleClockOrigin);
                 _rowVisible = false;
                 _rowHeight = InitialRowHeight;
@@ -194,8 +264,8 @@ namespace Flight
                 _second = long.MinValue;
             }
 
-            // The label is destroyed with the flight scene, so this falls back to searching.
-            if (_text == null && !TrySearchForRow()) return;
+            // The columns are destroyed with the flight scene, so this falls back to searching.
+            if (_valueColumn == null && !TrySearchForRow()) return;
 
             // All formats show whole seconds. Refresh when the second or a clock setting changes.
             var time = GetClockTime(craft, universeTime);
@@ -270,20 +340,20 @@ namespace Flight
         {
             var homePlanet = CelestialClock.GetHomePlanet(localBody);
             var earth = CelestialClock.GetEarth(localBody);
-            var lines = new StringBuilder();
+            var columns = new ClockColumns();
             var tooltip = new StringBuilder(
                 BuildTooltip(context.StartAtOne, context.Origin));
-            AppendEarth(lines, tooltip, earth, context, showInSystemEarthClock);
+            AppendEarth(columns, tooltip, earth, context, showInSystemEarthClock);
 
             // Earth's calendar is always shown, so a body that keeps it needs no line of its own.
             if (!CelestialClock.IsEarth(homePlanet))
-                AppendBody(lines, tooltip, homePlanet, context);
+                AppendBody(columns, tooltip, homePlanet, context);
 
             // The local body only adds a line of its own once the craft has left the home planet.
             if (!ReferenceEquals(localBody, homePlanet) && !CelestialClock.IsEarth(localBody))
-                AppendBody(lines, tooltip, localBody, context);
+                AppendBody(columns, tooltip, localBody, context);
 
-            SetRow(lines.ToString(), tooltip.ToString());
+            SetRow(columns, tooltip.ToString());
         }
 
         /// <summary>
@@ -340,14 +410,38 @@ namespace Flight
         /// <summary>
         /// Shows the given text and tooltip, sizing the row to the text.
         /// </summary>
-        /// <param name="text">The text to show.</param>
+        /// <param name="columns">The synchronized label, origin, and value columns.</param>
         /// <param name="tooltip">The tooltip to show.</param>
-        private void SetRow(string text, string tooltip)
+        private void SetRow(ClockColumns columns, string tooltip)
         {
-            _text.text = text;
+            var labels = columns.Labels;
+            var origins = columns.Origins;
+            var values = columns.Values;
+            _labelColumn.text = labels;
+            _originColumn.text = origins;
+            _valueColumn.text = values;
             _row.Tooltip = LeftAlignTooltip(tooltip);
 
-            var height = Mathf.CeilToInt(_text.GetPreferredValues(text).y) + RowPadding;
+            var labelSize = _labelColumn.GetPreferredValues(labels);
+            var valueSize = _valueColumn.GetPreferredValues(values);
+            SetColumnWidth(_labelColumnElement, labelSize.x);
+            SetColumnWidth(_valueColumnElement, valueSize.x);
+            var showOrigins = columns.HasOrigins;
+            if (_originColumnElement.GameObject.activeSelf != showOrigins)
+            {
+                _originColumnElement.SetAndApplyAttribute(
+                    "active",
+                    showOrigins ? "true" : "false");
+            }
+            if (showOrigins)
+            {
+                SetColumnWidth(
+                    _originColumnElement,
+                    _originColumn.GetPreferredValues(origins).x);
+            }
+
+            var height =
+                Mathf.CeilToInt(Mathf.Max(labelSize.y, valueSize.y)) + RowPadding;
             if (height != _rowHeight)
             {
                 _rowHeight = height;
@@ -358,15 +452,22 @@ namespace Flight
             _rowVisible = true;
         }
 
+        private static void SetColumnWidth(IXmlElement column, float width)
+        {
+            var value = Mathf.CeilToInt(width).ToString(CultureInfo.InvariantCulture);
+            if (column.GetAttribute("preferredWidth") != value)
+                column.SetAndApplyAttribute("preferredWidth", value);
+        }
+
         /// <summary>
         /// Appends a body's clock value and calendar details when available.
         /// </summary>
-        /// <param name="lines">The builder of the displayed lines.</param>
+        /// <param name="columns">The builder of the displayed columns.</param>
         /// <param name="tooltip">The builder of the tooltip.</param>
         /// <param name="planet">The celestial body.</param>
         /// <param name="context">The selected clock mode and its time values.</param>
         private static void AppendBody(
-            StringBuilder lines,
+            ClockColumns columns,
             StringBuilder tooltip,
             IPlanetNode planet,
             ClockContext context)
@@ -387,10 +488,11 @@ namespace Flight
                 return;
 
             AppendLine(
-                lines,
+                columns,
                 tooltip,
                 CelestialClock.GetName(planet),
-                context.Prefix + value,
+                context.Prefix,
+                value,
                 calendar);
         }
 
@@ -399,7 +501,7 @@ namespace Flight
         /// planetary system's physical Earth clock. Its tooltip always describes those differences.
         /// </summary>
         private static void AppendEarth(
-            StringBuilder lines,
+            ClockColumns columns,
             StringBuilder tooltip,
             IPlanetNode earth,
             ClockContext context,
@@ -414,10 +516,11 @@ namespace Flight
                     CelestialClock.EarthDaysPerYear,
                     CelestialClock.EarthHoursPerDay);
             AppendLine(
-                lines,
+                columns,
                 tooltip,
                 CelestialClock.EarthName,
-                context.Prefix + earthTime,
+                context.Prefix,
+                earthTime,
                 earthCalendar);
 
             if (earth is null ||
@@ -441,7 +544,7 @@ namespace Flight
             if (TryFormatInSystemEarthClock(
                     earth, context, earthData, out var inSystemTime))
                 AppendDisplayLine(
-                    lines, "In-system Earth", context.Prefix + inSystemTime);
+                    columns, "In-system Earth", context.Prefix, inSystemTime);
         }
 
         private static bool TryFormatInSystemEarthClock(
@@ -470,24 +573,27 @@ namespace Flight
         /// <summary>
         /// Appends a line of the display, and the calendar it is on to the tooltip.
         /// </summary>
-        /// <param name="lines">The builder of the displayed lines.</param>
+        /// <param name="columns">The builder of the displayed columns.</param>
         /// <param name="tooltip">The builder of the tooltip.</param>
         /// <param name="name">The name of the body the line is for.</param>
-        /// <param name="date">The formatted date.</param>
+        /// <param name="origin">The optional T+ or S+ marker.</param>
+        /// <param name="value">The formatted date or elapsed time.</param>
         /// <param name="calendar">The formatted lengths of the body's year and day.</param>
         private static void AppendLine(
-            StringBuilder lines, StringBuilder tooltip, string name, string date, string calendar)
+            ClockColumns columns,
+            StringBuilder tooltip,
+            string name,
+            string origin,
+            string value,
+            string calendar)
         {
-            AppendDisplayLine(lines, name, date);
+            AppendDisplayLine(columns, name, origin, value);
             AppendTooltipBlock(tooltip, name, calendar);
         }
 
-        private static void AppendDisplayLine(StringBuilder lines, string name, string date)
-        {
-            if (lines.Length > 0)
-                lines.Append('\n');
-            lines.Append(name).Append(' ').Append(date);
-        }
+        private static void AppendDisplayLine(
+            ClockColumns columns, string name, string origin, string value) =>
+            columns.Append(name, origin, value);
 
         private static void AppendTooltipBlock(
             StringBuilder tooltip, string name, string calendar) =>
