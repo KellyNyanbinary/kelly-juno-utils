@@ -57,35 +57,33 @@ namespace Flight
         private sealed class ClockColumns
         {
             private readonly StringBuilder _labels = new();
-            private readonly StringBuilder _origins = new();
+            private readonly StringBuilder _middle = new();
             private readonly StringBuilder _values = new();
             private bool _hasRows;
 
             public string Labels => _labels.ToString();
-            public string Origins => _origins.ToString();
+            public string Middle => _middle.ToString();
             public string Values => _values.ToString();
-            public bool HasOrigins { get; private set; }
 
-            public void Append(string label, string origin, string value)
+            public void Append(string label, string middle, string value)
             {
                 if (_hasRows)
                 {
                     _labels.Append('\n');
-                    _origins.Append('\n');
+                    _middle.Append('\n');
                     _values.Append('\n');
                 }
 
                 _labels.Append(label);
-                _origins.Append(origin);
+                _middle.Append(middle);
                 _values.Append(value);
-                HasOrigins |= !string.IsNullOrWhiteSpace(origin);
                 _hasRows = true;
             }
         }
 
         private const string RowId = "kelly-utils-clock-row";
         private const string LabelColumnId = "kelly-utils-clock-labels";
-        private const string OriginColumnId = "kelly-utils-clock-origins";
+        private const string MiddleColumnId = "kelly-utils-clock-middle";
         private const string ValueColumnId = "kelly-utils-clock-values";
         private const string FontSize = "14";
         private const int ColumnSpacing = 6;
@@ -110,10 +108,10 @@ namespace Flight
 
         private IXmlElement _row;
         private IXmlElement _labelColumnElement;
-        private IXmlElement _originColumnElement;
+        private IXmlElement _middleColumnElement;
         private IXmlElement _valueColumnElement;
         private TextMeshProUGUI _labelColumn;
-        private TextMeshProUGUI _originColumn;
+        private TextMeshProUGUI _middleColumn;
         private TextMeshProUGUI _valueColumn;
 
         private float _nextSearchTime;
@@ -180,7 +178,7 @@ namespace Flight
                     new XAttribute("childForceExpandWidth", false),
                     new XAttribute("flexibleWidth", 1),
                     CreateTextColumn(ns, LabelColumnId, "TopLeft", flexible: true),
-                    CreateTextColumn(ns, OriginColumnId, "TopRight"),
+                    CreateTextColumn(ns, MiddleColumnId, "TopRight"),
                     CreateTextColumn(ns, ValueColumnId, "TopRight")));
 
             // Keep the row above the adjustment panel so it stays put when that panel toggles.
@@ -222,26 +220,26 @@ namespace Flight
             {
                 var row = layout.GetElementById(RowId);
                 var labelElement = layout.GetElementById(LabelColumnId);
-                var originElement = layout.GetElementById(OriginColumnId);
+                var middleElement = layout.GetElementById(MiddleColumnId);
                 var valueElement = layout.GetElementById(ValueColumnId);
                 var labels = layout.GetElementById<TextMeshProUGUI>(LabelColumnId);
-                var origins = layout.GetElementById<TextMeshProUGUI>(OriginColumnId);
+                var middle = layout.GetElementById<TextMeshProUGUI>(MiddleColumnId);
                 var values = layout.GetElementById<TextMeshProUGUI>(ValueColumnId);
                 if (row == null ||
                     labelElement == null ||
-                    originElement == null ||
+                    middleElement == null ||
                     valueElement == null ||
                     labels == null ||
-                    origins == null ||
+                    middle == null ||
                     values == null)
                     continue;
 
                 _row = row;
                 _labelColumnElement = labelElement;
-                _originColumnElement = originElement;
+                _middleColumnElement = middleElement;
                 _valueColumnElement = valueElement;
                 _labelColumn = labels;
-                _originColumn = origins;
+                _middleColumn = middle;
                 _valueColumn = values;
                 _row.AddOnClickEvent(CycleClockOrigin);
                 _rowVisible = false;
@@ -423,38 +421,29 @@ namespace Flight
         /// <summary>
         /// Shows the given text and tooltip, sizing the row to the text.
         /// </summary>
-        /// <param name="columns">The synchronized label, origin, and value columns.</param>
+        /// <param name="columns">The synchronized label, middle, and value columns.</param>
         /// <param name="tooltip">The tooltip to show.</param>
         private void SetRow(ClockColumns columns, string tooltip)
         {
             var labels = columns.Labels;
-            var origins = columns.Origins;
+            var middle = columns.Middle;
             var values = columns.Values;
             _labelColumn.text = labels;
-            _originColumn.text = origins;
+            _middleColumn.text = middle;
             _valueColumn.text = values;
             _row.Tooltip = LeftAlignTooltip(tooltip);
 
             var labelSize = _labelColumn.GetPreferredValues(labels);
+            var middleSize = _middleColumn.GetPreferredValues(middle);
             var valueSize = _valueColumn.GetPreferredValues(values);
             SetColumnWidth(_labelColumnElement, labelSize.x);
+            SetColumnWidth(_middleColumnElement, middleSize.x);
             SetColumnWidth(_valueColumnElement, valueSize.x);
-            var showOrigins = columns.HasOrigins;
-            if (_originColumnElement.GameObject.activeSelf != showOrigins)
-            {
-                _originColumnElement.SetAndApplyAttribute(
-                    "active",
-                    showOrigins ? "true" : "false");
-            }
-            if (showOrigins)
-            {
-                SetColumnWidth(
-                    _originColumnElement,
-                    _originColumn.GetPreferredValues(origins).x);
-            }
 
             var height =
-                Mathf.CeilToInt(Mathf.Max(labelSize.y, valueSize.y)) + RowPadding;
+                Mathf.CeilToInt(
+                    Mathf.Max(labelSize.y, Mathf.Max(middleSize.y, valueSize.y))) +
+                RowPadding;
             if (height != _rowHeight)
             {
                 _rowHeight = height;
@@ -504,7 +493,7 @@ namespace Flight
                 columns,
                 tooltip,
                 CelestialClock.GetName(planet),
-                context.Prefix,
+                context,
                 value,
                 calendar);
         }
@@ -532,7 +521,7 @@ namespace Flight
                 columns,
                 tooltip,
                 CelestialClock.EarthName,
-                context.Prefix,
+                context,
                 earthTime,
                 earthCalendar);
 
@@ -557,7 +546,7 @@ namespace Flight
             if (TryFormatInSystemEarthClock(
                     earth, context, earthData, out var inSystemTime))
                 AppendDisplayLine(
-                    columns, "In-system Earth", context.Prefix, inSystemTime);
+                    columns, "In-system Earth", context, inSystemTime);
         }
 
         private static void AppendEridReference(
@@ -578,7 +567,7 @@ namespace Flight
                 columns,
                 tooltip,
                 CelestialClock.EridReferenceName,
-                context.Prefix,
+                context,
                 value,
                 calendar);
         }
@@ -612,24 +601,40 @@ namespace Flight
         /// <param name="columns">The builder of the displayed columns.</param>
         /// <param name="tooltip">The builder of the tooltip.</param>
         /// <param name="name">The name of the body the line is for.</param>
-        /// <param name="origin">The optional T+ or S+ marker.</param>
+        /// <param name="context">The selected clock mode.</param>
         /// <param name="value">The formatted date or elapsed time.</param>
         /// <param name="calendar">The formatted lengths of the body's year and day.</param>
         private static void AppendLine(
             ClockColumns columns,
             StringBuilder tooltip,
             string name,
-            string origin,
+            ClockContext context,
             string value,
             string calendar)
         {
-            AppendDisplayLine(columns, name, origin, value);
+            AppendDisplayLine(columns, name, context, value);
             AppendTooltipBlock(tooltip, name, calendar);
         }
 
         private static void AppendDisplayLine(
-            ClockColumns columns, string name, string origin, string value) =>
-            columns.Append(name, origin, value);
+            ClockColumns columns,
+            string name,
+            ClockContext context,
+            string value)
+        {
+            // The middle column holds the date in universe mode and the T+/S+ marker otherwise.
+            if (!context.IsUniverseDate)
+            {
+                columns.Append(name, context.Prefix, value);
+                return;
+            }
+
+            var separator = value.LastIndexOf(' ');
+            columns.Append(
+                name,
+                value.Substring(0, separator),
+                value.Substring(separator + 1));
+        }
 
         private static void AppendTooltipBlock(
             StringBuilder tooltip, string name, string calendar) =>
