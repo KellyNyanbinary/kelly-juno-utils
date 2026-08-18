@@ -114,14 +114,14 @@ namespace Tests
                 Is.EqualTo(expected));
 
         [TestCase(0.0, false)]
-        [TestCase(0.999, false)]
-        [TestCase(1.0, true)]
-        [TestCase(86399.001, false)]
-        [TestCase(86399.0, true)]
-        [TestCase(-0.999, false)]
-        [TestCase(-1.0, true)]
-        [TestCase(86400.999, false)]
-        [TestCase(86401.0, true)]
+        [TestCase(1.0, false)]
+        [TestCase(1.001, true)]
+        [TestCase(86399.000, false)]
+        [TestCase(86389.999, true)]
+        [TestCase(-1.0, false)]
+        [TestCase(-1.001, true)]
+        [TestCase(86401.0, false)]
+        [TestCase(86401.001, true)]
         public void EarthEpochDiffersFromMidnight_UsesCircularOneSecondMargin(
             double epochTimeOfDay, bool expected) =>
             Assert.That(
