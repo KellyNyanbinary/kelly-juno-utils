@@ -334,9 +334,8 @@ namespace Flight
         internal static string FormatDayOfYear(long day, double daysPerYear)
         {
             var maximumDays = (long)Math.Ceiling(daysPerYear);
-            var dayDigits = Math.Max(
-                2,
-                maximumDays.ToString(CultureInfo.InvariantCulture).Length);
+            var dayDigits =
+                maximumDays.ToString(CultureInfo.InvariantCulture).Length;
             return day.ToString("D" + dayDigits, CultureInfo.InvariantCulture);
         }
 
@@ -462,9 +461,8 @@ namespace Flight
             var minutes = totalSeconds / 60L % 60L;
             var seconds = totalSeconds % 60L;
             var largestHour = Math.Max(0L, (long)Math.Ceiling(dayLength / 3600.0) - 1L);
-            var hourDigits = Math.Max(
-                2,
-                largestHour.ToString(CultureInfo.InvariantCulture).Length);
+            var hourDigits =
+                largestHour.ToString(CultureInfo.InvariantCulture).Length;
             return string.Format(
                 CultureInfo.InvariantCulture,
                 "{0}:{1:00}:{2:00}",
